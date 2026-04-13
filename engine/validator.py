@@ -98,6 +98,21 @@ class EventValidator(DetectionValidator):
             "image_id": batch["image_id"][si],
         }
 
+    def preprocess(self, batch: dict[str, Any]) -> dict[str, Any]:
+        """Preprocess batch of images for YOLO validation.
+
+        Args:
+            batch (dict[str, Any]): Batch containing images and annotations.
+
+        Returns:
+            (dict[str, Any]): Preprocessed batch.
+        """
+        for k, v in batch.items():
+            if isinstance(v, torch.Tensor):
+                batch[k] = v.to(self.device, non_blocking=self.device.type == "cuda")
+        batch["img"] = batch["img"].half() if self.args.half else batch["img"].float()
+        return batch
+
     def plot_val_samples(self, batch, ni):
         """Plots the validation ground truth labels"""
         images = batch["img"].clone().detach()
