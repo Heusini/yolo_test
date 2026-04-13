@@ -1,9 +1,30 @@
+from typing import Any
 import torch
+import numpy as np
 from ultralytics.utils import ops
 from ultralytics.models.yolo.detect import DetectionValidator
 from pathlib import Path
 
 from ultralytics.utils.metrics import DetMetrics
+from einops import rearrange, reduce
+from ultralytics.utils.plotting import plot_images
+
+
+def ev_repr_to_img(x: np.ndarray):
+    ch, ht, wd = x.shape[-3:]
+    assert ch > 1 and ch % 2 == 0
+    ev_repr_reshaped = rearrange(x, "(posneg C) H W -> posneg C H W", posneg=2)
+    img_neg = np.asarray(
+        reduce(ev_repr_reshaped[0], "C H W -> H W", "sum"), dtype="int32"
+    )
+    img_pos = np.asarray(
+        reduce(ev_repr_reshaped[1], "C H W -> H W", "sum"), dtype="int32"
+    )
+    img_diff = img_pos - img_neg
+    img = 127 * np.ones((3, ht, wd), dtype=np.uint8)
+    img[:, img_diff > 0] = 255
+    img[:, img_diff < 0] = 0
+    return img
 
 
 class EventValidator(DetectionValidator):
@@ -62,11 +83,11 @@ class EventValidator(DetectionValidator):
         ori_shape = batch["ori_shape"][si]
         imgsz = batch["img"].shape[2:]
         ratio_pad = batch["ratio_pad"][si]
-        # if cls.shape[0]:
-        #     bbox = (
-        #         ops.xywh2xyxy(bbox)
-        #         * torch.tensor(imgsz, device=self.device)[[1, 0, 1, 0]]
-        #     )  # target boxes
+        if cls.shape[0]:
+            bbox = (
+                ops.xywh2xyxy(bbox)
+                * torch.tensor(imgsz, device=self.device)[[1, 0, 1, 0]]
+            )  # target boxes
         return {
             "cls": cls,
             "bboxes": bbox,
@@ -76,3 +97,54 @@ class EventValidator(DetectionValidator):
             "im_file": batch["im_file"][si],
             "image_id": batch["image_id"][si],
         }
+
+    def plot_val_samples(self, batch, ni):
+        """Plots the validation ground truth labels"""
+        images = batch["img"].clone().detach()
+        imagei = np.stack([ev_repr_to_img(img.cpu().numpy()) for img in images])
+
+        new_batch = batch.copy()
+        new_batch["img"] = imagei
+
+        plot_images(
+            labels=new_batch,
+            paths=batch["im_file"],
+            fname=self.save_dir / f"val_batch{ni}_labels.jpg",
+            names=self.names,
+            on_plot=self.on_plot,
+        )
+
+    def plot_predictions(
+        self,
+        batch: dict[str, Any],
+        preds: list[dict[str, torch.Tensor]],
+        ni: int,
+        max_det: int | None = None,
+    ) -> None:
+        if not preds:
+            return
+
+        """Plots the model's actual predictions"""
+        images = batch["img"].clone().detach()
+        imagei = np.stack([ev_repr_to_img(img.cpu().numpy()) for img in images])
+
+        for i, pred in enumerate(preds):
+            pred["batch_idx"] = (
+                torch.ones_like(pred["conf"]) * i
+            )  # add batch index to predictions
+        keys = preds[0].keys()
+        max_det = max_det or self.args.max_det
+        batched_preds = {
+            k: torch.cat([x[k][:max_det] for x in preds], dim=0) for k in keys
+        }
+        batched_preds["bboxes"] = ops.xyxy2xywh(
+            batched_preds["bboxes"]
+        )  # convert to xywh format
+        plot_images(
+            images=imagei,
+            labels=batched_preds,
+            paths=batch["im_file"],
+            fname=self.save_dir / f"val_batch{ni}_pred.jpg",
+            names=self.names,
+            on_plot=self.on_plot,
+        )  # pred

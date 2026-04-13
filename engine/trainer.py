@@ -93,7 +93,7 @@ class EventTrainer(DetectionTrainer):
     def get_validator(self):
         self.loss_names = "box_loss", "cls_loss", "dfl_loss"
         print(type(self.test_loader))
-        return DetectionValidator(
+        return EventValidator(
             self.test_loader,
             save_dir=self.save_dir,
             args=copy(self.args),
