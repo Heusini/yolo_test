@@ -30,14 +30,14 @@ def collate_fn(batch):
     batch_idx = torch.cat(batch_idx)
     return {
         "img": imgs,
-        "image_id": image_ids,
         "cls": cls,
         "bboxes": bboxes,
         "batch_idx": batch_idx,
         "im_file": im_files,
         "ori_shape": ori_shapes,
         "resized_shape": resized_shapes,
-        "ratio_pad": [((0.0, 0.0), (0.0, 0.0))] * len(imgs),
+        "ratio_pad": [((1.0, 1.0), (0.0, 0.0))] * len(imgs),
+        "image_id": image_ids,
     }
 
 
