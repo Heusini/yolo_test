@@ -123,7 +123,7 @@ class BaseDataset(Dataset):
         images = []
         annotations = []
         categories = []
-        drone_category = {"id": 0, "name": "drone"}
+        drone_category = {"id": 1, "name": "drone"}
         categories.append(drone_category)
 
         event_shape = self.get_im_shape()
@@ -143,7 +143,7 @@ class BaseDataset(Dataset):
                 annotation = {}
                 annotation["id"] = box_count
                 annotation["image_id"] = i
-                annotation["category_id"] = 0
+                annotation["category_id"] = 1
                 annotation["area"] = float(label["w"] * label["h"])
                 annotation["bbox"] = [
                     float(label["x"]),
@@ -163,8 +163,8 @@ class BaseDataset(Dataset):
         return json_str
 
     def __len__(self):
-        # return len(self.match_list)
-        return 500
+        return len(self.match_list)
+        # return 500
 
     def check_cache_ram(self, safety_margin: float = 0.5) -> bool:
         """Check if there's enough RAM for caching images.
