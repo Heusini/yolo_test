@@ -1,5 +1,8 @@
 from ultralytics import YOLO
 from engine.trainer import EventTrainer
+import matplotlib
+
+matplotlib.use("Agg")
 
 model = YOLO("event_conf.yaml", task="detect").load("./yolo26s.pt")
 
@@ -13,5 +16,5 @@ model.train(
     device=[0],
     imgsz=640,
     rect=True,
-    save_json=False,
+    save_json=True,
 )
