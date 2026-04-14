@@ -32,7 +32,6 @@ class RGBDataset(BaseDataset):
         frame = frame[list(frame.keys())[0]]
         frame = torch.from_numpy(frame)
         frame = frame.permute(-1, 0, 1)
-        frame = frame / 255
 
         cls = torch.from_numpy(labels["class_id"]).unsqueeze(1)
         padded_shape = self.get_im_padded_shape()
