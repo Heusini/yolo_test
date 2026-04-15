@@ -4,11 +4,11 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-model = YOLO("event_conf.yaml", task="detect").load("./yolo26s.pt")
+model = YOLO("./conf/event_conf.yaml", task="detect").load("./yolo26s.pt")
 
 model.train(
     trainer=EventTrainer,
-    data="event_data.yaml",
+    data="./conf/event_data.yaml",
     epochs=5,
     workers=0,
     project="yolo",

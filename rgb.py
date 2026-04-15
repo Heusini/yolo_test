@@ -4,11 +4,11 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-model = YOLO("rgb_conf.yaml", task="detect").load("./yolo26s.pt")
+model = YOLO("./conf/rgb_conf.yaml", task="detect").load("./yolo26s.pt")
 
 model.train(
     trainer=RGBTrainer,
-    data="rgb_data.yaml",
+    data="./conf/rgb_data.yaml",
     epochs=5,
     workers=0,
     project="yolo",
