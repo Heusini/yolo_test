@@ -1,0 +1,12 @@
+# path: /scratch/sheusinger/st_stephan_360_640_20/ # dataset root dir
+# path: /scratch/sheusinger/st_stephan_720_1280_20/ # dataset root dir
+path: /scratch/sheusinger/st_stephan_720_1280_10_10000/
+train: train # train images (relative to 'path') 4 images
+val: val
+
+channels: 13
+imgsz: [384, 640]
+# imgsz: [720, 1280]
+
+names:
+  0: drone
