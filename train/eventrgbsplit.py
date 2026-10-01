@@ -1,6 +1,7 @@
 import torch
 from ultralytics import YOLO
 from engine.eventrgbsplittrainer import EventRGBSplitTrainer
+from engine.split_trainer import SplitTrainer
 import matplotlib
 import cv2
 
@@ -16,7 +17,7 @@ def main():
     torch.set_num_threads(16)
 
     model.train(
-        trainer=EventRGBSplitTrainer,
+        trainer=SplitTrainer,
         data="./conf/eventrgb_big_image_data.yaml",
         epochs=15,
         workers=8,
@@ -25,7 +26,7 @@ def main():
         device=[1],
         imgsz=640,
         rect=True,
-        save_json=True,
+        save_json=False,
     )
 
 

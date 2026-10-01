@@ -1,4 +1,4 @@
-path: /scratch/sheusinger/st_stephan_360_640_20/ # dataset root dir
+path: /scratch/sheusinger/st_stephan_360_640_20000_10/ # dataset root dir
 train: train # train images (relative to 'path') 4 images
 val: val
 

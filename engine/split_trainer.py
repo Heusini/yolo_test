@@ -11,31 +11,16 @@ from ultralytics.data.build import InfiniteDataLoader
 from ultralytics.utils.plotting import plot_images
 
 from copy import copy
-from einops import rearrange, reduce
 
-from datasets.eventdataset import EventDataset
+from datasets.aramsuisse_dataset import ArmasuisseDataset
+from datasets.split_transformer import SplitTransformer
+from datasets.yolo_converter import YoloConverter
+
 from engine.basetrainer import collate_fn
-from engine.validator import EventValidator
+from engine.eventrgbvalidator import EventRGBValidator
 
 
-def ev_repr_to_img(x: np.ndarray):
-    ch, ht, wd = x.shape[-3:]
-    assert ch > 1 and ch % 2 == 0
-    ev_repr_reshaped = rearrange(x, "(posneg C) H W -> posneg C H W", posneg=2)
-    img_neg = np.asarray(
-        reduce(ev_repr_reshaped[0], "C H W -> H W", "sum"), dtype="int32"
-    )
-    img_pos = np.asarray(
-        reduce(ev_repr_reshaped[1], "C H W -> H W", "sum"), dtype="int32"
-    )
-    img_diff = img_pos - img_neg
-    img = 127 * np.ones((3, ht, wd), dtype=np.uint8)
-    img[:, img_diff > 0] = 255
-    img[:, img_diff < 0] = 0
-    return img
-
-
-class EventTrainer(DetectionTrainer):
+class SplitTrainer(DetectionTrainer):
     def __init__(
         self,
         cfg=DEFAULT_CFG,
@@ -59,16 +44,18 @@ class EventTrainer(DetectionTrainer):
                 ],
                 bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]),
             )
-        return EventDataset(
-            path=img_path,
-            transform=transform,
-        )
+        arma = ArmasuisseDataset(img_path, True, True)
+        split = SplitTransformer(arma, 384, 640)
+        yolo = YoloConverter(img_path, split)
+        return yolo
 
     def preprocess_batch(self, batch: dict) -> dict:
         for k, v in batch.items():
             if isinstance(v, torch.Tensor):
                 batch[k] = v.to(self.device, non_blocking=self.device.type == "cuda")
         batch["img"] = batch["img"].float()
+        batch["img"][:, :3, :, :] /= 255
+        batch["img"][:, 3:, :, :] = torch.log1p(batch["img"][:, 3:, :, :])
         return batch
 
     def get_dataloader(self, dataset_path, batch_size=16, rank=0, mode="train"):
@@ -83,19 +70,25 @@ class EventTrainer(DetectionTrainer):
 
     def get_validator(self):
         self.loss_names = "box_loss", "cls_loss", "dfl_loss"
-        return EventValidator(
+        return EventRGBValidator(
             self.test_loader,
             save_dir=self.save_dir,
             args=copy(self.args),
             _callbacks=self.callbacks,
         )
 
+    def validate(self):
+        """Forces plotting to be enabled during intermediate epochs."""
+        # Ultralytics normally disables plots during training to save time.
+        # We explicitly enable it here so W&B gets the images every epoch!
+        self.validator.args.plots = True
+        return super().validate()
+
     def plot_training_samples(self, batch: dict[str, Any], ni: int) -> None:
         images = batch["img"].clone().detach()
-        imagei = np.stack([ev_repr_to_img(img.cpu().numpy()) for img in images])
 
         new_batch = batch.copy()
-        new_batch["img"] = imagei
+        new_batch["img"] = images[:, :3, :, :]
 
         plot_images(
             labels=new_batch,

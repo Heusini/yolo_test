@@ -20,11 +20,11 @@ def main():
         epochs=15,
         workers=8,
         project="yolo",
-        name="rgb_yolo",
+        name="rgb_yolo_20000_10",
         device=[0],
         imgsz=640,
         rect=True,
-        save_json=True,
+        save_json=False,
     )
 
 

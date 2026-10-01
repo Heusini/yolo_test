@@ -1,18 +1,4 @@
 import torch
-import numpy as np
-
-from typing import Any
-
-from ultralytics.models.yolo.detect import DetectionTrainer
-from ultralytics.utils import DEFAULT_CFG
-from ultralytics.data.build import InfiniteDataLoader
-from ultralytics.utils.plotting import plot_images
-
-from copy import copy
-from einops import rearrange, reduce
-
-from datasets.eventdataset import EventDataset
-from engine.validator import EventValidator
 
 
 def collate_fn(batch):
@@ -39,8 +25,3 @@ def collate_fn(batch):
         "ratio_pad": [((1.0, 1.0), (0.0, 0.0))] * len(imgs),
         "image_id": image_ids,
     }
-
-
-class BaseTrainer(DetectionTrainer):
-    def __init__(self):
-        pass

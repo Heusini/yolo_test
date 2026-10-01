@@ -1,7 +1,7 @@
 import cv2
 import torch
 from ultralytics import YOLO
-from engine.trainer import EventTrainer
+from engine.ev_trainer import EventTrainer
 import matplotlib
 
 
@@ -15,14 +15,14 @@ def main():
     model.train(
         trainer=EventTrainer,
         data="./conf/event_data.yaml",
-        epochs=15,
+        epochs=20,
         workers=8,
         project="yolo",
         name="event_yolo",
         device=[0],
         imgsz=640,
         rect=True,
-        save_json=True,
+        save_json=False,
     )
 
 

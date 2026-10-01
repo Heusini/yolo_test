@@ -29,11 +29,9 @@ class EventDataset(BaseDataset):
         match = self.match_list[index]
 
         event = np.load(match.event_path)
-        event = event[list(event.keys())[0]]
         event = torch.from_numpy(event)
 
-        label = np.load(match.label_path)
-        labels = label[list(label.keys())[0]]
+        labels = np.load(match.label_path)
 
         cls = torch.from_numpy(labels["class_id"]).unsqueeze(1)
         padded_shape = self.get_im_padded_shape()
