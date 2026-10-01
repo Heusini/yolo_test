@@ -65,9 +65,9 @@ class ArmasuisseDataset(BaseDataset):
     def get_im_shape(self):
         if self.im_width is None:
             if self.load_rgbs:
-                rgb = np.load(self.match_list[0].frame_path)
-                self.im_width = rgb.shape[-1]
-                self.im_height = rgb.shape[-2]
+                rgb = np.load(self.match_list[0].frame_path)  # HWC
+                self.im_height = rgb.shape[0]
+                self.im_width = rgb.shape[1]
             else:
                 event = np.load(self.match_list[0].event_path)
                 self.im_width = event.shape[-1]

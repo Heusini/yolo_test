@@ -13,7 +13,6 @@ from ultralytics.utils.plotting import plot_images
 from copy import copy
 from einops import rearrange, reduce
 
-from utils.normalize import normalize_event_tensor
 from engine.basetrainer import collate_fn
 from engine.ev_validator import EventValidator
 from datasets.aramsuisse_dataset import ArmasuisseDataset
@@ -72,7 +71,7 @@ class EventTrainer(DetectionTrainer):
         for k, v in batch.items():
             if isinstance(v, torch.Tensor):
                 batch[k] = v.to(self.device, non_blocking=self.device.type == "cuda")
-        batch["img"] = normalize_event_tensor(batch["img"].float())
+        batch["img"] = batch["img"].float()  # event counts stay raw (as in RVT)
         return batch
 
     def get_dataloader(self, dataset_path, batch_size=16, rank=0, mode="train"):
