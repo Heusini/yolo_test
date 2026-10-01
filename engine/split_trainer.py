@@ -54,8 +54,7 @@ class SplitTrainer(DetectionTrainer):
             if isinstance(v, torch.Tensor):
                 batch[k] = v.to(self.device, non_blocking=self.device.type == "cuda")
         batch["img"] = batch["img"].float()
-        batch["img"][:, :3, :, :] /= 255
-        batch["img"][:, 3:, :, :] = torch.log1p(batch["img"][:, 3:, :, :])
+        batch["img"][:, :3, :, :] /= 255  # RGB to [0, 1]; event counts stay raw (as in RVT)
         return batch
 
     def get_dataloader(self, dataset_path, batch_size=16, rank=0, mode="train"):
@@ -64,7 +63,7 @@ class SplitTrainer(DetectionTrainer):
             dataset,
             batch_size=batch_size,
             collate_fn=collate_fn,
-            shuffle=True,
+            shuffle=mode == "train",
             num_workers=self.args.workers,
         )
 

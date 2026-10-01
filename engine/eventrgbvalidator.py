@@ -95,10 +95,8 @@ class EventRGBValidator(DetectionValidator):
                 batch[k] = v.to(self.device, non_blocking=self.device.type == "cuda")
         batch["img"] = batch["img"].half() if self.args.half else batch["img"].float()
 
-        # Apply normalization identical to the trainers' preprocess_batch
-        batch["img"][:, :3, :, :] /= 255
-        if batch["img"].shape[1] > 3:
-            batch["img"][:, 3:, :, :] = torch.log1p(batch["img"][:, 3:, :, :])
+        # Same normalization as the trainers' preprocess_batch
+        batch["img"][:, :3, :, :] /= 255  # RGB to [0, 1]; event counts stay raw (as in RVT)
 
         return batch
 

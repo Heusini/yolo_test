@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 
 import albumentations as A
 
@@ -11,11 +10,27 @@ from ultralytics.data.build import InfiniteDataLoader
 from ultralytics.utils.plotting import plot_images
 
 from copy import copy
-from einops import rearrange, reduce
 
-from datasets.eventrgbdataset import EventRGBDataset
+from datasets.aramsuisse_dataset import ArmasuisseDataset
+from datasets.pad_transformer import PadTransformer
+from datasets.yolo_converter import YoloConverter
 from engine.basetrainer import collate_fn
 from engine.eventrgbvalidator import EventRGBValidator
+
+
+# Not applied yet (needs a wrapper like PadTransformer); kept for the augmentation step.
+TRAIN_TRANSFORM = A.Compose(
+    [
+        A.HorizontalFlip(p=0.5),
+        A.Affine(
+            scale=(0.9, 1.1),
+            translate_percent=(-0.0625, 0.0625),
+            rotate=(-15, 15),
+            p=0.5,
+        ),
+    ],
+    bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]),
+)
 
 
 class EventRGBTrainer(DetectionTrainer):
@@ -28,30 +43,17 @@ class EventRGBTrainer(DetectionTrainer):
         super().__init__(cfg, overrides, _callbacks)
 
     def build_dataset(self, img_path, mode="train", batch=None):
-        transform = None
-        if mode == "train":
-            transform = A.Compose(
-                [
-                    A.HorizontalFlip(p=0.5),
-                    A.Affine(
-                        scale=(0.9, 1.1),
-                        translate_percent=(-0.0625, 0.0625),
-                        rotate=(-15, 15),
-                        p=0.5,
-                    ),
-                ],
-                bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]),
-            )
-        return EventRGBDataset(
-            path=img_path,
-            transform=transform,
-        )
+        arma = ArmasuisseDataset(img_path, True, True)
+        padded = PadTransformer(arma, (0, 0, 0, 24))  # 360 -> 384 rows
+        yolo = YoloConverter(img_path, padded)
+        return yolo
 
     def preprocess_batch(self, batch: dict) -> dict:
         for k, v in batch.items():
             if isinstance(v, torch.Tensor):
                 batch[k] = v.to(self.device, non_blocking=self.device.type == "cuda")
         batch["img"] = batch["img"].float()
+        batch["img"][:, :3, :, :] /= 255  # RGB to [0, 1]; event counts stay raw (as in RVT)
         return batch
 
     def get_dataloader(self, dataset_path, batch_size=16, rank=0, mode="train"):
@@ -60,7 +62,7 @@ class EventRGBTrainer(DetectionTrainer):
             dataset,
             batch_size=batch_size,
             collate_fn=collate_fn,
-            shuffle=True,
+            shuffle=mode == "train",
             num_workers=self.args.workers,
         )
 
@@ -72,6 +74,10 @@ class EventRGBTrainer(DetectionTrainer):
             args=copy(self.args),
             _callbacks=self.callbacks,
         )
+
+    def validate(self):
+        self.validator.args.plots = True  # keep val plots every epoch (W&B)
+        return super().validate()
 
     def plot_training_samples(self, batch: dict[str, Any], ni: int) -> None:
         images = batch["img"].clone().detach()
