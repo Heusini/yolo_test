@@ -1,6 +1,5 @@
 import torch
 from ultralytics import YOLO
-from engine.eventrgbsplittrainer import EventRGBSplitTrainer
 from engine.split_trainer import SplitTrainer
 import matplotlib
 import cv2

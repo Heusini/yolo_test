@@ -95,7 +95,7 @@ class EventRGBValidator(DetectionValidator):
                 batch[k] = v.to(self.device, non_blocking=self.device.type == "cuda")
         batch["img"] = batch["img"].half() if self.args.half else batch["img"].float()
 
-        # Apply normalization identical to EventRGBSplitTrainer
+        # Apply normalization identical to the trainers' preprocess_batch
         batch["img"][:, :3, :, :] /= 255
         if batch["img"].shape[1] > 3:
             batch["img"][:, 3:, :, :] = torch.log1p(batch["img"][:, 3:, :, :])
@@ -126,23 +126,6 @@ class EventRGBValidator(DetectionValidator):
     ) -> None:
         if not preds:
             return
-
-        # --- COPY-PASTE THIS DEBUG BLOCK ---
-        print("\n" + "=" * 40)
-        print("DEBUG: Checking what 'preds' actually is...")
-        print(f"Type of preds: {type(preds)}")
-        print(f"Type of preds[0]: {type(preds[0])}")
-
-        try:
-            if isinstance(preds[0], torch.Tensor):
-                print(f"Shape of preds[0]: {preds[0].shape}")
-            elif isinstance(preds[0], dict):
-                print(f"Keys of preds[0]: {preds[0].keys()}")
-        except Exception as e:
-            print(f"Debug print failed: {e}")
-
-        print("=" * 40 + "\n")
-        # -----------------------------------
 
         """Plots the model's actual predictions"""
         images = batch["img"].clone().detach()
