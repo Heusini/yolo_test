@@ -9,9 +9,11 @@ from ultralytics.nn.tasks import yaml_model_load
 from ultralytics.utils.ops import make_divisible
 
 
-def load_dualstem_cfg(path: str | Path) -> dict:
-    """yaml_model_load() + width/depth scaling of DualStemFuse (c_out, repeats) and the Index channel count."""
-    d = deepcopy(yaml_model_load(path))
+def load_dualstem_cfg(cfg: str | Path | dict) -> dict:
+    """yaml path or loaded dict -> dict with DualStemFuse (c_out, repeats) and Index channels scaled for `scale`."""
+    d = deepcopy(cfg) if isinstance(cfg, dict) else deepcopy(yaml_model_load(cfg))
+    if d.get("dualstem_resolved"):
+        return d
     scale = d.get("scale") or next(iter(d["scales"]))
     depth, width, max_channels = d["scales"][scale]
     d["scale"] = scale
@@ -26,4 +28,5 @@ def load_dualstem_cfg(path: str | Path) -> dict:
             args[4] = max(round(args[4] * depth), 1)
             if layers[i + 1][2] == "Index":
                 layers[i + 1][3][0] = args[2]
+    d["dualstem_resolved"] = True
     return d
