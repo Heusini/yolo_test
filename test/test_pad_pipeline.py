@@ -22,6 +22,11 @@ def main(root: str):
     assert img[:, 3:, 360:].abs().sum() == 0, "event padding rows must be zero"
     assert boxes.shape[1] == 4 and (boxes >= 0).all() and (boxes <= 1).all(), "boxes must be normalized xywh"
     assert len(batch["batch_idx"]) == len(boxes)
+    matches = ds.dataset.dataset.match_list
+    for seq_id in {m.seq for m in matches}:
+        pos = [m.pos for m in matches if m.seq == seq_id]
+        assert pos == list(range(len(pos))), f"frames of sequence {seq_id} must be numbered 0..n-1 in order"
+    assert batch["seq_id"].shape == batch["frame_idx"].shape == (4,)
     print(f"ok: img {tuple(img.shape)} {img.dtype}, {len(boxes)} boxes, rgb max {img[:, :3].max().item()}, event max {img[:, 3:].max().item()}")
 
 

@@ -15,10 +15,13 @@ from itertools import repeat
 
 
 class Match:
-    def __init__(self, event_path: Path, label_path: Path, frame_path: Path):
+    def __init__(self, event_path: Path, label_path: Path, frame_path: Path, seq: int = 0, pos: int = 0, seq_len: int = 1):
         self.event_path = event_path
         self.label_path = label_path
         self.frame_path = frame_path
+        self.seq = seq  # index of the sequence directory
+        self.pos = pos  # frame index inside the sequence
+        self.seq_len = seq_len
 
 
 def create_matching_items(path: Path):
@@ -26,7 +29,7 @@ def create_matching_items(path: Path):
     label_folder = Path("labels")
     frame_folder = Path("rgbs")
     match_list = []
-    for dir in os.listdir(path):
+    for seq, dir in enumerate(sorted(os.listdir(path))):
         event_path = path / dir / event_folder
         label_path = path / dir / label_folder
         rgb_path = path / dir / frame_folder
@@ -50,6 +53,9 @@ def create_matching_items(path: Path):
                 event_path / event_files[i],
                 label_path / label_files[i],
                 rgb_path / rgb_files[i],
+                seq=seq,
+                pos=i,
+                seq_len=len(event_files),
             )
             for i in range(len(event_files))
         ]

@@ -60,6 +60,8 @@ class ArmasuisseDataset(BaseDataset):
             "resized_shape": [height, width],
             "normalized": False,
             "bbox_format": "xyxy",
+            "seq_id": match.seq,
+            "frame_idx": match.pos,
         }
 
     def get_im_shape(self):

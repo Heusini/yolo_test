@@ -24,4 +24,6 @@ def collate_fn(batch):
         "resized_shape": resized_shapes,
         "ratio_pad": [((1.0, 1.0), (0.0, 0.0))] * len(imgs),
         "image_id": image_ids,
+        "seq_id": torch.tensor([b.get("seq_id", 0) for b in batch]),
+        "frame_idx": torch.tensor([b.get("frame_idx", 0) for b in batch]),
     }

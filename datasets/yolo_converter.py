@@ -9,7 +9,7 @@ from ultralytics.data.utils import save_dataset_cache_file, load_dataset_cache_f
 from ultralytics.utils import LOCAL_RANK, LOGGER, NUM_THREADS, TQDM, colorstr
 
 
-DATASET_CACHE_VERSION = "1.0.3"
+DATASET_CACHE_VERSION = "1.0.4"  # 1.0.4: sequence dirs sorted (Match.seq/pos)
 
 
 class YoloConverter(Dataset):
