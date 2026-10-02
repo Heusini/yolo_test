@@ -1,7 +1,5 @@
 import torch
 
-import albumentations as A
-
 from typing import Any
 
 from ultralytics.models.yolo.detect import DetectionTrainer
@@ -19,21 +17,6 @@ from datasets.rgb_shift_transformer import RGBShiftTransformer
 from datasets.yolo_converter import YoloConverter
 from engine.basetrainer import collate_fn
 from engine.eventrgbvalidator import EventRGBValidator
-
-
-# Not applied yet (needs a wrapper like PadTransformer); kept for the augmentation step.
-TRAIN_TRANSFORM = A.Compose(
-    [
-        A.HorizontalFlip(p=0.5),
-        A.Affine(
-            scale=(0.9, 1.1),
-            translate_percent=(-0.0625, 0.0625),
-            rotate=(-15, 15),
-            p=0.5,
-        ),
-    ],
-    bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]),
-)
 
 
 class EventRGBTrainer(DetectionTrainer):
