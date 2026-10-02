@@ -12,6 +12,7 @@ from ultralytics.utils.plotting import plot_images
 from copy import copy
 
 from datasets.aramsuisse_dataset import ArmasuisseDataset
+from datasets.flip_transformer import HFlipTransformer
 from datasets.pad_transformer import PadTransformer
 from datasets.rgb_photometric_transformer import RGBPhotometricTransformer
 from datasets.rgb_shift_transformer import RGBShiftTransformer
@@ -40,6 +41,8 @@ class EventRGBTrainer(DetectionTrainer):
     RGB_SHIFT_PX = (0, 0)
     # RGB-only photometric jitter (train only): probability per sample. 0 = off.
     RGB_PHOTOMETRIC_P = 0.0
+    # Horizontal flip of both modalities + boxes (train only): probability. 0 = off.
+    HFLIP_P = 0.0
 
     def __init__(
         self,
@@ -55,6 +58,8 @@ class EventRGBTrainer(DetectionTrainer):
             ds = RGBShiftTransformer(ds, *self.RGB_SHIFT_PX)
         if mode == "train" and self.RGB_PHOTOMETRIC_P > 0:
             ds = RGBPhotometricTransformer(ds, p=self.RGB_PHOTOMETRIC_P)
+        if mode == "train" and self.HFLIP_P > 0:
+            ds = HFlipTransformer(ds, p=self.HFLIP_P)
         padded = PadTransformer(ds, (0, 0, 0, 24))  # 360 -> 384 rows
         yolo = YoloConverter(img_path, padded)
         return yolo
