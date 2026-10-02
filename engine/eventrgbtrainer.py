@@ -13,6 +13,7 @@ from copy import copy
 
 from datasets.aramsuisse_dataset import ArmasuisseDataset
 from datasets.pad_transformer import PadTransformer
+from datasets.rgb_photometric_transformer import RGBPhotometricTransformer
 from datasets.rgb_shift_transformer import RGBShiftTransformer
 from datasets.yolo_converter import YoloConverter
 from engine.basetrainer import collate_fn
@@ -37,6 +38,8 @@ TRAIN_TRANSFORM = A.Compose(
 class EventRGBTrainer(DetectionTrainer):
     # RGB-only translation jitter (train only), max pixels in x / y. 0 = off.
     RGB_SHIFT_PX = (0, 0)
+    # RGB-only photometric jitter (train only): probability per sample. 0 = off.
+    RGB_PHOTOMETRIC_P = 0.0
 
     def __init__(
         self,
@@ -50,6 +53,8 @@ class EventRGBTrainer(DetectionTrainer):
         ds = ArmasuisseDataset(img_path, True, True)
         if mode == "train" and any(self.RGB_SHIFT_PX):
             ds = RGBShiftTransformer(ds, *self.RGB_SHIFT_PX)
+        if mode == "train" and self.RGB_PHOTOMETRIC_P > 0:
+            ds = RGBPhotometricTransformer(ds, p=self.RGB_PHOTOMETRIC_P)
         padded = PadTransformer(ds, (0, 0, 0, 24))  # 360 -> 384 rows
         yolo = YoloConverter(img_path, padded)
         return yolo
