@@ -22,8 +22,9 @@ from engine.eventrgbvalidator import EventRGBValidator
 class EventRGBTrainer(DetectionTrainer):
     # RGB-only translation jitter (train only), max pixels in x / y. 0 = off.
     RGB_SHIFT_PX = (0, 0)
-    # RGB-only photometric jitter (train only): probability per sample. 0 = off.
+    # RGB-only photometric jitter (train only): probability per sample. 0 = off. KW: blur_max, exposure=(lo, hi).
     RGB_PHOTOMETRIC_P = 0.0
+    RGB_PHOTOMETRIC_KW = {}
     # Horizontal flip of both modalities + boxes (train only): probability. 0 = off.
     HFLIP_P = 0.0
 
@@ -40,7 +41,7 @@ class EventRGBTrainer(DetectionTrainer):
         if mode == "train" and any(self.RGB_SHIFT_PX):
             ds = RGBShiftTransformer(ds, *self.RGB_SHIFT_PX)
         if mode == "train" and self.RGB_PHOTOMETRIC_P > 0:
-            ds = RGBPhotometricTransformer(ds, p=self.RGB_PHOTOMETRIC_P)
+            ds = RGBPhotometricTransformer(ds, p=self.RGB_PHOTOMETRIC_P, **self.RGB_PHOTOMETRIC_KW)
         if mode == "train" and self.HFLIP_P > 0:
             ds = HFlipTransformer(ds, p=self.HFLIP_P)
         padded = PadTransformer(ds, (0, 0, 0, 24))  # 360 -> 384 rows

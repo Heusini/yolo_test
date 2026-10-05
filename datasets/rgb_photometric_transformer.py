@@ -13,9 +13,9 @@ class RGBPhotometricTransformer(Dataset):
     brightness/contrast, gamma, exposure scaling (under/over-exposure with clipping), Gaussian noise, motion blur.
     """
 
-    def __init__(self, dataset: Dataset, p: float = 0.8, c_rgb: int = 3, blur_max: int = 15):
+    def __init__(self, dataset: Dataset, p: float = 0.8, c_rgb: int = 3, blur_max: int = 15, exposure=(0.3, 2.5)):
         self.dataset = dataset
-        self.p, self.c_rgb, self.blur_max = p, c_rgb, blur_max
+        self.p, self.c_rgb, self.blur_max, self.exposure = p, c_rgb, blur_max, exposure
 
     def __len__(self):
         return len(self.dataset)
@@ -38,8 +38,8 @@ class RGBPhotometricTransformer(Dataset):
             x = (x - mean) * random.uniform(0.7, 1.3) + mean + random.uniform(-25, 25)
         if random.random() < 0.3:  # gamma
             x = 255.0 * (x.clamp(0, 255) / 255.0) ** random.uniform(0.7, 1.5)
-        if random.random() < 0.3:  # exposure: under (dark) or over (clipped highlights)
-            x = x * random.choice([random.uniform(0.3, 0.6), random.uniform(1.5, 2.5)])
+        if random.random() < 0.3:  # exposure scaling (under-exposure or clipped highlights)
+            x = x * random.uniform(*self.exposure)
         if random.random() < 0.3:  # sensor noise
             x = x + torch.randn_like(x) * random.uniform(2, 12)
         if random.random() < 0.3 and self.blur_max >= 3:  # motion blur (RGB smears, events do not)
