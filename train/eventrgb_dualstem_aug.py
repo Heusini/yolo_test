@@ -21,6 +21,7 @@ def parse():
     p.add_argument("--name", required=True, help="run name suffix: eventrgb_dualstem_<name>_yolo26n")
     p.add_argument("--device", type=int, default=1)
     p.add_argument("--epochs", type=int, default=15)
+    p.add_argument("--p2", action="store_true", help="use the P2-head variant (conf/yolo26n_evrgb_dualstem_p2.yaml)")
     p.add_argument("--flip", type=float, default=0.0, help="horizontal flip probability")
     p.add_argument("--photo", type=float, default=0.0, help="RGB photometric jitter probability")
     p.add_argument("--blur", type=int, default=15, help="max motion-blur kernel in px for --photo (0 = no blur)")
@@ -46,15 +47,16 @@ def main():
     print(f"augmentation: flip={a.flip} photo={a.photo} (blur<={a.blur}, exposure={a.exposure}) shift={a.shift} "
           f"drop_rgb={a.drop_rgb} drop_evt={a.drop_evt}")
 
+    variant = "_p2" if a.p2 else ""
     trainer = DualStemTrainer(
         overrides=dict(
-            model="./conf/yolo26n_evrgb_dualstem.yaml",
+            model=f"./conf/yolo26n_evrgb_dualstem{variant}.yaml",
             pretrained="./yolo26n.pt",
             data="./conf/eventrgb_data.yaml",
             epochs=a.epochs,
             workers=8,
             project="yolo",
-            name=f"eventrgb_dualstem_{a.name}_yolo26n",
+            name=f"eventrgb_dualstem{variant}_{a.name}_yolo26n",
             device=[a.device],
             imgsz=640,
             rect=True,

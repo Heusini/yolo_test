@@ -54,6 +54,7 @@ class DualStemFuse(nn.Module):
         n: int = 1,
         p_drop_rgb: float = 0.0,
         p_drop_evt: float = 0.0,
+        fuse_p2: bool = False,
     ):
         super().__init__()
         self.c_rgb, self.c_evt = c_rgb, c_in - c_rgb
@@ -62,6 +63,10 @@ class DualStemFuse(nn.Module):
         self.evt_stem = _stem(self.c_evt, c_out, evt_width, n)
         self.evt_mem = nn.Identity()  # slot for a temporal block (ConvLSTM) later
         self.fuse = GatedFuse(c_out)
+        # Optional second gate on the stride-4 maps (for a P2 detection head). Appends fused_p2 to the output list.
+        self.fuse_p2 = GatedFuse(c_out) if fuse_p2 else None
+        if fuse_p2:
+            assert evt_width == 1.0, "fuse_p2 needs equal stride-4 widths in both stems (evt_width=1.0)"
 
     def _drop(self, x: torch.Tensor, p: float) -> torch.Tensor:
         if not self.training or p <= 0:
@@ -72,10 +77,15 @@ class DualStemFuse(nn.Module):
     def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
         rgb = self._drop(x[:, : self.c_rgb], self.p_drop_rgb)
         evt = self._drop(x[:, self.c_rgb :], self.p_drop_evt)
-        f_rgb = self.rgb_stem(rgb)
-        f_evt = self.evt_mem(self.evt_stem(evt))
+        p2_rgb = self.rgb_stem[:3](rgb)  # stride 4
+        p2_evt = self.evt_stem[:3](evt)
+        f_rgb = self.rgb_stem[3](p2_rgb)  # stride 8
+        f_evt = self.evt_mem(self.evt_stem[3](p2_evt))
         fused, g = self.fuse(f_rgb, f_evt)
-        return [fused, f_rgb, f_evt, g]
+        out = [fused, f_rgb, f_evt, g]
+        if self.fuse_p2 is not None:
+            out.append(self.fuse_p2(p2_rgb, p2_evt)[0])
+        return out
 
 
 def register() -> None:

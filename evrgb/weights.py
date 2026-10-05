@@ -17,6 +17,10 @@ from ultralytics.nn.tasks import load_checkpoint
 from ultralytics.utils import LOGGER
 
 _LAYER = re.compile(r"^model\.(\d+)\.(.*)$")
+_DETECT_LEVEL = re.compile(r"^(cv2|cv3|one2one_cv2|one2one_cv3)\.(\d+)\.")
+# yolo26 layer -> P2-variant layer: trunk and top-down neck shift by -2, bottom-up neck by +5 (P2 branch inserted),
+# Detect 23 -> 28. The P2 branch itself (layers 15-21) has no pretrained counterpart.
+_P2_MAP = {**{i: i - 2 for i in range(4, 17)}, 17: 22, 18: 23, 19: 24, 20: 25, 21: 26, 22: 27, 23: 28}
 
 
 def is_single_stem(state_dict: dict) -> bool:
@@ -35,6 +39,9 @@ def load_pretrained(model: nn.Module, src: str | Path | nn.Module | dict) -> dic
     sd = src if isinstance(src, dict) else src.float().state_dict()
     dst = model.state_dict()
 
+    p2 = len(model.model) == 29  # P2-head variant (conf/yolo26_evrgb_dualstem_p2.yaml) vs 22 layers for P3
+    layer_map = _P2_MAP if p2 else {i: i - 2 for i in range(4, 24)}
+
     remapped = {}
     for k, v in sd.items():
         m = _LAYER.match(k)
@@ -44,8 +51,10 @@ def load_pretrained(model: nn.Module, src: str | Path | nn.Module | dict) -> dic
         if i <= 3:
             remapped[f"model.0.rgb_stem.{i}.{rest}"] = v
             remapped[f"model.0.evt_stem.{i}.{rest}"] = v
-        else:
-            remapped[f"model.{i - 2}.{rest}"] = v
+        elif i in layer_map:
+            if p2 and i == 23:  # Detect: yolo26 levels P3,P4,P5 -> ours P2,P3,P4,P5 (level index + 1)
+                rest = _DETECT_LEVEL.sub(lambda mm: f"{mm.group(1)}.{int(mm.group(2)) + 1}.", rest)
+            remapped[f"model.{layer_map[i]}.{rest}"] = v
 
     loaded, skipped = {}, []
     for k, v in remapped.items():
