@@ -37,14 +37,15 @@ class EventRGBTrainer(DetectionTrainer):
         super().__init__(cfg, overrides, _callbacks)
 
     def build_dataset(self, img_path, mode="train", batch=None):
-        ds = ArmasuisseDataset(img_path, True, True)
+        arma = ds = ArmasuisseDataset(img_path, True, True)
         if mode == "train" and any(self.RGB_SHIFT_PX):
             ds = RGBShiftTransformer(ds, *self.RGB_SHIFT_PX)
         if mode == "train" and self.RGB_PHOTOMETRIC_P > 0:
             ds = RGBPhotometricTransformer(ds, p=self.RGB_PHOTOMETRIC_P, **self.RGB_PHOTOMETRIC_KW)
         if mode == "train" and self.HFLIP_P > 0:
             ds = HFlipTransformer(ds, p=self.HFLIP_P)
-        padded = PadTransformer(ds, (0, 0, 0, 24))  # 360 -> 384 rows
+        h, w = arma.get_im_shape()
+        padded = PadTransformer(ds, (0, -w % 32, 0, -h % 32))  # pad right/bottom to a multiple of 32 (360 -> 384, 720 -> 736)
         yolo = YoloConverter(img_path, padded)
         return yolo
 

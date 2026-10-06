@@ -1,6 +1,6 @@
 """Write a tiny fake dataset in the real on-disk layout for CPU tests.
 
-usage: python test/make_fake_dataset.py <out_dir>   -> <out_dir>/{train,val}/seq*/{events,labels,rgbs}/*.npy
+usage: python test/make_fake_dataset.py <out_dir> [height width]   -> <out_dir>/{train,val}/seq*/{events,labels,rgbs}/*.npy
 """
 
 import sys
@@ -9,6 +9,8 @@ from pathlib import Path
 import numpy as np
 
 H, W, EV_CH, N_SEQ, N_FRAMES = 360, 640, 10, 2, 6
+if len(sys.argv) > 3:
+    H, W = int(sys.argv[2]), int(sys.argv[3])
 LABEL_DTYPE = [("x", "f4"), ("y", "f4"), ("w", "f4"), ("h", "f4"), ("class_id", "i8")]
 
 
@@ -37,7 +39,7 @@ def main(out_dir: str):
     write_split(out / "train", rng)
     write_split(out / "val", rng)
     (out / "fake_data.yaml").write_text(
-        f"path: {out.resolve()}\ntrain: train\nval: val\nchannels: {3 + EV_CH}\nimgsz: [384, 640]\nnames:\n  0: drone\n"
+        f"path: {out.resolve()}\ntrain: train\nval: val\nchannels: {3 + EV_CH}\nimgsz: [{-H % 32 + H}, {-W % 32 + W}]\nnames:\n  0: drone\n"
     )
     print(f"fake dataset written to {out}")
 

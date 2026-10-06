@@ -22,6 +22,8 @@ def parse():
     p.add_argument("--device", type=int, default=1)
     p.add_argument("--epochs", type=int, default=15)
     p.add_argument("--p2", action="store_true", help="use the P2-head variant (conf/yolo26n_evrgb_dualstem_p2.yaml)")
+    p.add_argument("--data", default="./conf/eventrgb_data.yaml", help="data yaml")
+    p.add_argument("--imgsz", type=int, default=640, help="long side of the images (640 or 1280); the loader pads to /32")
     p.add_argument("--flip", type=float, default=0.0, help="horizontal flip probability")
     p.add_argument("--photo", type=float, default=0.0, help="RGB photometric jitter probability")
     p.add_argument("--blur", type=int, default=15, help="max motion-blur kernel in px for --photo (0 = no blur)")
@@ -52,13 +54,13 @@ def main():
         overrides=dict(
             model=f"./conf/yolo26n_evrgb_dualstem{variant}.yaml",
             pretrained="./yolo26n.pt",
-            data="./conf/eventrgb_data.yaml",
+            data=a.data,
             epochs=a.epochs,
             workers=8,
             project="yolo",
             name=f"eventrgb_dualstem{variant}_{a.name}_yolo26n",
             device=[a.device],
-            imgsz=640,
+            imgsz=a.imgsz,
             rect=True,
             save_json=True,
             # Ultralytics' own augmentations are NOT applied by our dataset chain; set to 0 so args.yaml is honest.
