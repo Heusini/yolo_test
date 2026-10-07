@@ -14,6 +14,7 @@ import matplotlib
 import torch
 
 from engine.dualstem_trainer import DualStemTrainer
+from engine.eventrgbtrainer import EventRGBTrainer
 
 
 def parse():
@@ -22,6 +23,7 @@ def parse():
     p.add_argument("--device", type=int, default=1)
     p.add_argument("--epochs", type=int, default=15)
     p.add_argument("--p2", action="store_true", help="use the P2-head variant (conf/yolo26n_evrgb_dualstem_p2.yaml)")
+    p.add_argument("--baseline", action="store_true", help="plain 13-channel yolo26n (conf/yolo26n_evrgb.yaml) instead of the dual stem")
     p.add_argument("--data", default="./conf/eventrgb_data.yaml", help="data yaml")
     p.add_argument("--imgsz", type=int, default=640, help="long side of the images (640 or 1280); the loader pads to /32")
     p.add_argument("--flip", type=float, default=0.0, help="horizontal flip probability")
@@ -40,25 +42,31 @@ def main():
     cv2.setNumThreads(0)
     torch.set_num_threads(16)
 
-    DualStemTrainer.HFLIP_P = a.flip
-    DualStemTrainer.RGB_PHOTOMETRIC_P = a.photo
-    DualStemTrainer.RGB_PHOTOMETRIC_KW = dict(blur_max=a.blur, exposure=tuple(a.exposure))
-    DualStemTrainer.RGB_SHIFT_PX = tuple(a.shift)
+    EventRGBTrainer.HFLIP_P = a.flip  # DualStemTrainer inherits these
+    EventRGBTrainer.RGB_PHOTOMETRIC_P = a.photo
+    EventRGBTrainer.RGB_PHOTOMETRIC_KW = dict(blur_max=a.blur, exposure=tuple(a.exposure))
+    EventRGBTrainer.RGB_SHIFT_PX = tuple(a.shift)
     DualStemTrainer.P_DROP_RGB = a.drop_rgb
     DualStemTrainer.P_DROP_EVT = a.drop_evt
+    if a.baseline and (a.drop_rgb or a.drop_evt):
+        raise SystemExit("modality dropout lives in DualStemFuse; not available with --baseline")
     print(f"augmentation: flip={a.flip} photo={a.photo} (blur<={a.blur}, exposure={a.exposure}) shift={a.shift} "
           f"drop_rgb={a.drop_rgb} drop_evt={a.drop_evt}")
 
-    variant = "_p2" if a.p2 else ""
-    trainer = DualStemTrainer(
+    if a.baseline:
+        trainer_cls, model, prefix = EventRGBTrainer, "./conf/yolo26n_evrgb.yaml", "eventrgb_baseline"
+    else:
+        variant = "_p2" if a.p2 else ""
+        trainer_cls, model, prefix = DualStemTrainer, f"./conf/yolo26n_evrgb_dualstem{variant}.yaml", f"eventrgb_dualstem{variant}"
+    trainer = trainer_cls(
         overrides=dict(
-            model=f"./conf/yolo26n_evrgb_dualstem{variant}.yaml",
+            model=model,
             pretrained="./yolo26n.pt",
             data=a.data,
             epochs=a.epochs,
             workers=8,
             project="yolo",
-            name=f"eventrgb_dualstem{variant}_{a.name}_yolo26n",
+            name=f"{prefix}_{a.name}_yolo26n",
             device=[a.device],
             imgsz=a.imgsz,
             rect=True,
