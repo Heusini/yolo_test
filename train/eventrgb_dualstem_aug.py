@@ -24,6 +24,7 @@ def parse():
     p.add_argument("--epochs", type=int, default=15)
     p.add_argument("--p2", action="store_true", help="use the P2-head variant (conf/yolo26n_evrgb_dualstem_p2.yaml)")
     p.add_argument("--baseline", action="store_true", help="plain 13-channel yolo26n (conf/yolo26n_evrgb.yaml) instead of the dual stem")
+    p.add_argument("--modality", choices=["both", "rgb", "event"], default="both", help="single-modality reference runs (implies --baseline)")
     p.add_argument("--data", default="./conf/eventrgb_data.yaml", help="data yaml")
     p.add_argument("--imgsz", type=int, default=640, help="long side of the images (640 or 1280); the loader pads to /32")
     p.add_argument("--flip", type=float, default=0.0, help="horizontal flip probability")
@@ -48,13 +49,17 @@ def main():
     EventRGBTrainer.RGB_SHIFT_PX = tuple(a.shift)
     DualStemTrainer.P_DROP_RGB = a.drop_rgb
     DualStemTrainer.P_DROP_EVT = a.drop_evt
+    if a.modality != "both":
+        a.baseline = True
+    EventRGBTrainer.MODALITY = a.modality
     if a.baseline and (a.drop_rgb or a.drop_evt):
-        raise SystemExit("modality dropout lives in DualStemFuse; not available with --baseline")
+        raise SystemExit("modality dropout lives in DualStemFuse; not available with --baseline / single modality")
     print(f"augmentation: flip={a.flip} photo={a.photo} (blur<={a.blur}, exposure={a.exposure}) shift={a.shift} "
           f"drop_rgb={a.drop_rgb} drop_evt={a.drop_evt}")
 
     if a.baseline:
-        trainer_cls, model, prefix = EventRGBTrainer, "./conf/yolo26n_evrgb.yaml", "eventrgb_baseline"
+        prefix = {"both": "eventrgb_baseline", "rgb": "rgbonly", "event": "eventonly"}[a.modality]
+        trainer_cls, model = EventRGBTrainer, "./conf/yolo26n_evrgb.yaml"
     else:
         variant = "_p2" if a.p2 else ""
         trainer_cls, model, prefix = DualStemTrainer, f"./conf/yolo26n_evrgb_dualstem{variant}.yaml", f"eventrgb_dualstem{variant}"

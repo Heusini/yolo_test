@@ -11,6 +11,8 @@ from ultralytics.utils.plotting import plot_images
 
 
 class EventRGBValidator(DetectionValidator):
+    N_RGB = 3  # leading RGB channels to scale by 1/255 (0 for event-only models)
+
     def __init__(
         self, dataloader=None, save_dir=None, args=None, _callbacks: dict | None = None
     ) -> None:
@@ -96,7 +98,8 @@ class EventRGBValidator(DetectionValidator):
         batch["img"] = batch["img"].half() if self.args.half else batch["img"].float()
 
         # Same normalization as the trainers' preprocess_batch
-        batch["img"][:, :3, :, :] /= 255  # RGB to [0, 1]; event counts stay raw (as in RVT)
+        if self.N_RGB:
+            batch["img"][:, : self.N_RGB] /= 255  # RGB to [0, 1]; event counts stay raw (as in RVT)
 
         return batch
 

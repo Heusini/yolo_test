@@ -27,6 +27,8 @@ class EventRGBTrainer(DetectionTrainer):
     RGB_PHOTOMETRIC_KW = {}
     # Horizontal flip of both modalities + boxes (train only): probability. 0 = off.
     HFLIP_P = 0.0
+    # "both" (13 ch), "rgb" (3 ch) or "event" (10 ch). Single-modality runs are the reference rows for the fusion.
+    MODALITY = "both"
 
     def __init__(
         self,
@@ -35,12 +37,20 @@ class EventRGBTrainer(DetectionTrainer):
         _callbacks: dict | None = None,
     ):
         super().__init__(cfg, overrides, _callbacks)
+        assert self.MODALITY in ("both", "rgb", "event"), self.MODALITY
+        self.load_rgb = self.MODALITY != "event"
+        self.load_evt = self.MODALITY != "rgb"
+        self.n_rgb = 3 if self.load_rgb else 0
+
+    def get_model(self, cfg=None, weights=None, verbose=True):
+        self.data["channels"] = 3 * self.load_rgb + 10 * self.load_evt
+        return super().get_model(cfg, weights, verbose)
 
     def build_dataset(self, img_path, mode="train", batch=None):
-        arma = ds = ArmasuisseDataset(img_path, True, True)
-        if mode == "train" and any(self.RGB_SHIFT_PX):
+        arma = ds = ArmasuisseDataset(img_path, self.load_rgb, self.load_evt)
+        if mode == "train" and self.load_rgb and any(self.RGB_SHIFT_PX):
             ds = RGBShiftTransformer(ds, *self.RGB_SHIFT_PX)
-        if mode == "train" and self.RGB_PHOTOMETRIC_P > 0:
+        if mode == "train" and self.load_rgb and self.RGB_PHOTOMETRIC_P > 0:
             ds = RGBPhotometricTransformer(ds, p=self.RGB_PHOTOMETRIC_P, **self.RGB_PHOTOMETRIC_KW)
         if mode == "train" and self.HFLIP_P > 0:
             ds = HFlipTransformer(ds, p=self.HFLIP_P)
@@ -54,7 +64,8 @@ class EventRGBTrainer(DetectionTrainer):
             if isinstance(v, torch.Tensor):
                 batch[k] = v.to(self.device, non_blocking=self.device.type == "cuda")
         batch["img"] = batch["img"].float()
-        batch["img"][:, :3, :, :] /= 255  # RGB to [0, 1]; event counts stay raw (as in RVT)
+        if self.n_rgb:
+            batch["img"][:, : self.n_rgb] /= 255  # RGB to [0, 1]; event counts stay raw (as in RVT)
         return batch
 
     def get_dataloader(self, dataset_path, batch_size=16, rank=0, mode="train"):
@@ -69,6 +80,7 @@ class EventRGBTrainer(DetectionTrainer):
 
     def get_validator(self):
         self.loss_names = "box_loss", "cls_loss", "dfl_loss"
+        EventRGBValidator.N_RGB = self.n_rgb
         return EventRGBValidator(
             self.test_loader,
             save_dir=self.save_dir,
