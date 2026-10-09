@@ -22,6 +22,7 @@ def parse():
     p.add_argument("--data", default="./conf/eventrgb_data.yaml")
     p.add_argument("--imgsz", type=int, default=640)
     p.add_argument("--device", type=int, default=1)
+    p.add_argument("--batch", type=int, default=16, help="train batch (val uses 2x); 8 halves GPU memory, effective batch stays 64")
     p.add_argument("--epochs-a", type=int, default=4, help="frozen phase")
     p.add_argument("--epochs-b", type=int, default=8, help="full fine-tune phase")
     return p.parse_args()
@@ -36,6 +37,7 @@ def main():
     common = dict(
         data=a.data,
         workers=8,
+        batch=a.batch,
         project="yolo",
         device=[a.device],
         imgsz=a.imgsz,

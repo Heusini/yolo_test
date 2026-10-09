@@ -8,6 +8,7 @@ examples:
 """
 
 import argparse
+from pathlib import Path
 
 import cv2
 import matplotlib
@@ -21,6 +22,7 @@ def parse():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--name", required=True, help="run name suffix: eventrgb_dualstem_<name>_yolo26n")
     p.add_argument("--device", type=int, default=1)
+    p.add_argument("--batch", type=int, default=16, help="train batch (val uses 2x); 8 halves GPU memory, effective batch stays 64")
     p.add_argument("--epochs", type=int, default=15)
     p.add_argument("--p2", action="store_true", help="use the P2-head variant (conf/yolo26n_evrgb_dualstem_p2.yaml)")
     p.add_argument("--baseline", action="store_true", help="plain 13-channel yolo26n (conf/yolo26n_evrgb.yaml) instead of the dual stem")
@@ -37,6 +39,17 @@ def parse():
     return p.parse_args()
 
 
+def data_yaml_for_modality(data: str, modality: str) -> str:
+    """Copy of the data yaml with `channels` matching the modality (the standalone final validation reads it)."""
+    import yaml
+
+    d = yaml.safe_load(Path(data).read_text())
+    d["channels"] = {"rgb": 3, "event": 10}[modality]
+    out = Path(data).with_name(f"{Path(data).stem}_{modality}.yaml")
+    out.write_text(yaml.safe_dump(d, sort_keys=False))
+    return str(out)
+
+
 def main():
     a = parse()
     matplotlib.use("Agg")
@@ -51,6 +64,7 @@ def main():
     DualStemTrainer.P_DROP_EVT = a.drop_evt
     if a.modality != "both":
         a.baseline = True
+        a.data = data_yaml_for_modality(a.data, a.modality)
     EventRGBTrainer.MODALITY = a.modality
     if a.baseline and (a.drop_rgb or a.drop_evt):
         raise SystemExit("modality dropout lives in DualStemFuse; not available with --baseline / single modality")
@@ -70,6 +84,7 @@ def main():
             data=a.data,
             epochs=a.epochs,
             workers=8,
+            batch=a.batch,
             project="yolo",
             name=f"{prefix}_{a.name}_yolo26n",
             device=[a.device],
