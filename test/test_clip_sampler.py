@@ -23,7 +23,9 @@ def check(sampler, ml, slots, L, random_slots=0):
     for batch in sampler:
         assert len(batch) == slots * L
         for b in range(slots):
-            frames = [ml[i] for i in batch[b * L:(b + 1) * L]]
+            idx = batch[b * L:(b + 1) * L]
+            assert len({i // len(ml) for i in idx}) == 1, "clip token differs inside a clip"
+            frames = [ml[i % len(ml)] for i in idx]
             assert len({f.seq for f in frames}) == 1, "clip spans sequences"
             assert [f.pos for f in frames] == list(range(frames[0].pos, frames[0].pos + L)), "clip not contiguous"
             if b < random_slots:
@@ -64,10 +66,13 @@ def main():
 
     s = ClipBatchSampler(ml, 4, L, shuffle=True, random_slots=2)  # RVT "mixed": 2 random + 2 stream slots
     nb, starts = check(s, ml, 4, L, random_slots=2)
-    heads = {tuple(ml[b[0]].pos for b in [batch[:L], batch[L:2 * L]]) for batch in s}
+    heads = {tuple(ml[b[0] % len(ml)].pos for b in [batch[:L], batch[L:2 * L]]) for batch in s}
     assert any(p % L for h in heads for p in h), "random slots never start off the clip grid"
     print(f"mixed 2 random + 2 stream: {nb} batches, {starts} stream starts, len={len(s)}")
+    toks = {i // len(ml) for batch in s for i in batch}
+    assert len(toks) > 1 and 0 not in toks, "shuffled clips must carry distinct non-zero tokens"
     s = ClipBatchSampler(ml, 2, L, random_slots=2)
+    assert all(i < len(ml) for batch in s for i in batch), "unshuffled indices must be plain"
     nb, _ = check(s, ml, 2, L, random_slots=2)
     assert nb == len(s) == 19 // 2, (nb, len(s))
     print("ok")

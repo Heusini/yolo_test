@@ -16,7 +16,8 @@ class HFlipTransformer(Dataset):
 
     def __getitem__(self, index: int):
         data = self.dataset.__getitem__(index)
-        if random.random() < self.p:
+        rng = random.Random(data["aug_key"] * 8 + 1) if data.get("aug_key") else random  # one draw per clip
+        if rng.random() < self.p:
             img = data["img"]
             w = img.shape[-1]
             data["img"] = torch.flip(img, dims=[-1])

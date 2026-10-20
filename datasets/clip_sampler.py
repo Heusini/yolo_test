@@ -5,6 +5,9 @@ than clip_len dropped); sequences are dealt to the stream slot with the fewest c
 so slot b in batch k+1 continues the sequence slot b had in batch k, and a slot starts a new sequence exactly when its
 first frame has pos 0. The first `random_slots` slots (RVT's BPTT loader) instead draw an independent random clip every
 batch and must always be reset. Indices are slot-major; random slots come first.
+With shuffle, every clip gets a random token folded into its indices (i + token * len(match_list)); ArmasuisseDataset
+unfolds it into `aug_key`, so the augmentation transformers can draw one decision per clip (a flip must not change
+mid-clip). Unshuffled (validation) indices are plain.
 __iter__ re-plans with an internal epoch counter (InfiniteDataLoader re-calls it, possibly early via prefetch).
 """
 
@@ -19,6 +22,7 @@ class ClipBatchSampler(Sampler):
         self.slots, self.clip_len, self.shuffle, self.seed = slots, clip_len, shuffle, seed
         self.random_slots, self.stream_slots = random_slots, slots - random_slots
         self.epoch = 0
+        self.n = len(match_list)
         clips = {}
         self.starts = []  # every index whose clip fits inside its sequence (random slots)
         for i, m in enumerate(match_list):
@@ -52,7 +56,8 @@ class ClipBatchSampler(Sampler):
         L = self.clip_len
         for k in range(n):
             heads = [rng.choice(self.starts) for _ in range(self.random_slots)] + [st[k] for st in streams]
-            yield [i for h in heads for i in range(h, h + L)]
+            toks = [rng.randrange(1, 1 << 30) if self.shuffle else 0 for _ in heads]
+            yield [i + t * self.n for h, t in zip(heads, toks) for i in range(h, h + L)]
 
     def __len__(self):
         return self._len

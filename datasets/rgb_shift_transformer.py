@@ -28,9 +28,10 @@ class RGBShiftTransformer(Dataset):
 
     def __getitem__(self, index: int):
         data = self.dataset.__getitem__(index)
-        if random.random() < self.p:
-            dx = random.randint(-self.max_dx, self.max_dx)
-            dy = random.randint(-self.max_dy, self.max_dy)
+        rng = random.Random(data["aug_key"] * 8 + 2) if data.get("aug_key") else random  # one draw per clip
+        if rng.random() < self.p:
+            dx = rng.randint(-self.max_dx, self.max_dx)
+            dy = rng.randint(-self.max_dy, self.max_dy)
             if dx or dy:
                 img = data["img"].clone()
                 img[: self.c_rgb] = self.shift(img[: self.c_rgb], dx, dy)

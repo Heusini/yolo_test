@@ -18,6 +18,7 @@ class ArmasuisseDataset(BaseDataset):
         self.load_rgbs = load_rgbs
 
     def __getitem__(self, index: int):
+        aug_key, index = divmod(index, len(self.match_list))  # clip token from ClipBatchSampler (0 = none)
         match = self.match_list[index]
 
         event = None
@@ -62,6 +63,7 @@ class ArmasuisseDataset(BaseDataset):
             "bbox_format": "xyxy",
             "seq_id": match.seq,
             "frame_idx": match.pos,
+            "aug_key": aug_key,
         }
 
     def get_im_shape(self):

@@ -31,25 +31,26 @@ class RGBPhotometricTransformer(Dataset):
         k = (k / k.sum()).expand(x.shape[0], 1, length, length)
         return F.conv2d(x.unsqueeze(0), k, padding=length // 2, groups=x.shape[0]).squeeze(0)
 
-    def jitter(self, rgb: torch.Tensor) -> torch.Tensor:
+    def jitter(self, rgb: torch.Tensor, rng=random) -> torch.Tensor:
         x = rgb.float()
-        if random.random() < 0.5:  # brightness / contrast
+        if rng.random() < 0.5:  # brightness / contrast
             mean = x.mean()
-            x = (x - mean) * random.uniform(0.7, 1.3) + mean + random.uniform(-25, 25)
-        if random.random() < 0.3:  # gamma
-            x = 255.0 * (x.clamp(0, 255) / 255.0) ** random.uniform(0.7, 1.5)
-        if random.random() < 0.3:  # exposure scaling (under-exposure or clipped highlights)
-            x = x * random.uniform(*self.exposure)
-        if random.random() < 0.3:  # sensor noise
-            x = x + torch.randn_like(x) * random.uniform(2, 12)
-        if random.random() < 0.3 and self.blur_max >= 3:  # motion blur (RGB smears, events do not)
-            x = self.motion_blur(x, random.randrange(3, self.blur_max + 1, 2), random.uniform(0, math.pi))
+            x = (x - mean) * rng.uniform(0.7, 1.3) + mean + rng.uniform(-25, 25)
+        if rng.random() < 0.3:  # gamma
+            x = 255.0 * (x.clamp(0, 255) / 255.0) ** rng.uniform(0.7, 1.5)
+        if rng.random() < 0.3:  # exposure scaling (under-exposure or clipped highlights)
+            x = x * rng.uniform(*self.exposure)
+        if rng.random() < 0.3:  # sensor noise
+            x = x + torch.randn_like(x) * rng.uniform(2, 12)
+        if rng.random() < 0.3 and self.blur_max >= 3:  # motion blur (RGB smears, events do not)
+            x = self.motion_blur(x, rng.randrange(3, self.blur_max + 1, 2), rng.uniform(0, math.pi))
         return x.clamp(0, 255).round().to(rgb.dtype)
 
     def __getitem__(self, index: int):
         data = self.dataset.__getitem__(index)
-        if random.random() < self.p:
+        rng = random.Random(data["aug_key"] * 8 + 3) if data.get("aug_key") else random  # one draw per clip
+        if rng.random() < self.p:
             img = data["img"].clone()
-            img[: self.c_rgb] = self.jitter(img[: self.c_rgb])
+            img[: self.c_rgb] = self.jitter(img[: self.c_rgb], rng)
             data["img"] = img
         return data
