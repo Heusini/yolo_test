@@ -3,6 +3,7 @@
 usage (repo root):
   python test/robustness_eval.py <ckpt.pt> [<ckpt2.pt> ...] --data conf/<data>.yaml --imgsz 1280 --device 0
   optional: --conditions clean rgb_zero evt_zero rgb_dark rgb_bright rgb_noise rgb_shift2 rgb_shift4 rgb_shift8 rgb_prev
+  recurrent checkpoints: add --clip-len 16 (batch // clip-len streaming slots); run the stateless reference with the same value
 """
 
 import argparse
@@ -16,6 +17,7 @@ from torch.utils.data import DataLoader, Dataset
 sys.path.append("./")
 import evrgb  # noqa: F401  (registers DualStemFuse for checkpoint loading)
 from datasets.aramsuisse_dataset import ArmasuisseDataset
+from datasets.clip_sampler import ClipBatchSampler
 from datasets.pad_transformer import PadTransformer
 from datasets.rgb_shift_transformer import RGBShiftTransformer
 from datasets.yolo_converter import YoloConverter
@@ -71,6 +73,9 @@ class RobustValidator(EventRGBValidator):
         ds = PrevRGB(arma) if self.condition == "rgb_prev" else arma
         h, w = arma.get_im_shape()
         ds = YoloConverter(dataset_path, PadTransformer(ds, (0, -w % 32, 0, -h % 32)))
+        if self.CLIP_LEN > 1:  # recurrent checkpoints: batch = slots x CLIP_LEN consecutive frames, state carried per slot
+            sampler = ClipBatchSampler(ds.match_list, max(batch_size // self.CLIP_LEN, 1), self.CLIP_LEN)
+            return DataLoader(ds, batch_sampler=sampler, num_workers=self.args.workers, collate_fn=collate_fn)
         return DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=self.args.workers, collate_fn=collate_fn)
 
     def preprocess(self, batch):
@@ -88,7 +93,9 @@ def main():
     p.add_argument("--batch", type=int, default=16)
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--conditions", nargs="+", default=CONDITIONS, choices=CONDITIONS)
+    p.add_argument("--clip-len", type=int, default=1, help="> 1 for recurrent checkpoints (use the same value for the stateless reference rows)")
     a = p.parse_args()
+    RobustValidator.CLIP_LEN = a.clip_len
 
     torch.manual_seed(0)
     rows = {}
