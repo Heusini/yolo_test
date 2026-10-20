@@ -9,9 +9,12 @@ from ultralytics.utils.metrics import DetMetrics
 from einops import rearrange, reduce
 from ultralytics.utils.plotting import plot_images
 
+from evrgb.temporal import step_memory
+
 
 class EventRGBValidator(DetectionValidator):
     N_RGB = 3  # leading RGB channels to scale by 1/255 (0 for event-only models)
+    CLIP_LEN = 1  # > 1: the dataloader yields clip batches (datasets/clip_sampler.py); recurrent blocks get reset flags
 
     def __init__(
         self, dataloader=None, save_dir=None, args=None, _callbacks: dict | None = None
@@ -32,6 +35,11 @@ class EventRGBValidator(DetectionValidator):
         self.iouv = torch.linspace(0.5, 0.95, 10)  # IoU vector for mAP@0.5:0.95
         self.niou = self.iouv.numel()
         self.metrics = DetMetrics()
+        self._mem_model = None
+
+    def init_metrics(self, model) -> None:
+        super().init_metrics(model)
+        self._mem_model = model  # DetectionModel in training, AutoBackend standalone; both contain the blocks
 
     def pred_to_json(
         self, predn: dict[str, torch.Tensor], pbatch: dict[str, Any]
@@ -100,6 +108,8 @@ class EventRGBValidator(DetectionValidator):
         # Same normalization as the trainers' preprocess_batch
         if self.N_RGB:
             batch["img"][:, : self.N_RGB] /= 255  # RGB to [0, 1]; event counts stay raw (as in RVT)
+        if self._mem_model is not None:
+            step_memory(self._mem_model, batch["frame_idx"], self.CLIP_LEN)
 
         return batch
 

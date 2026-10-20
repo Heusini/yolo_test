@@ -2,6 +2,7 @@ from pathlib import Path
 
 import evrgb  # noqa: F401  (registers DualStemFuse for yaml parsing)
 from evrgb.config import load_dualstem_cfg
+from evrgb.temporal import TemporalBlock, clear_memory
 from evrgb.weights import is_single_stem, load_pretrained
 from ultralytics.nn.tasks import DetectionModel, load_checkpoint
 from ultralytics.utils import RANK
@@ -15,9 +16,15 @@ class DualStemTrainer(EventRGBTrainer):
     # Modality dropout (train only), overrides the yaml literals when not None.
     P_DROP_RGB = None
     P_DROP_EVT = None
+    # "none" or "lstm": temporal block in the event stem (DualStemFuse.evt_mem), identity at init; train with CLIP_LEN > 1.
+    MEM = "none"
 
     def get_model(self, cfg=None, weights=None, verbose=True):
         model = DetectionModel(load_dualstem_cfg(cfg), nc=self.data["nc"], ch=self.data["channels"], verbose=verbose and RANK == -1)
+        if self.MEM == "lstm":
+            model.model[0].evt_mem = TemporalBlock(model.model[0].evt_stem[3].conv.out_channels)
+        else:
+            assert self.MEM == "none", self.MEM
         if self.P_DROP_RGB is not None:
             model.model[0].p_drop_rgb = self.P_DROP_RGB
         if self.P_DROP_EVT is not None:
@@ -31,4 +38,5 @@ class DualStemTrainer(EventRGBTrainer):
                 load_pretrained(model, src)
             else:
                 model.load(src)  # dual-stem checkpoint (resume / phase 2): plain name+shape copy
+        clear_memory(model)
         return model

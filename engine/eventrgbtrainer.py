@@ -5,11 +5,13 @@ from typing import Any
 from ultralytics.models.yolo.detect import DetectionTrainer
 from ultralytics.utils import DEFAULT_CFG
 from ultralytics.data.build import InfiniteDataLoader
+from ultralytics.utils.torch_utils import unwrap_model
 from ultralytics.utils.plotting import plot_images
 
 from copy import copy
 
 from datasets.aramsuisse_dataset import ArmasuisseDataset
+from datasets.clip_sampler import ClipBatchSampler
 from datasets.flip_transformer import HFlipTransformer
 from datasets.pad_transformer import PadTransformer
 from datasets.rgb_photometric_transformer import RGBPhotometricTransformer
@@ -17,6 +19,7 @@ from datasets.rgb_shift_transformer import RGBShiftTransformer
 from datasets.yolo_converter import YoloConverter
 from engine.basetrainer import collate_fn
 from engine.eventrgbvalidator import EventRGBValidator
+from evrgb.temporal import clear_memory, step_memory
 
 
 class EventRGBTrainer(DetectionTrainer):
@@ -29,6 +32,10 @@ class EventRGBTrainer(DetectionTrainer):
     HFLIP_P = 0.0
     # "both" (13 ch), "rgb" (3 ch) or "event" (10 ch). Single-modality runs are the reference rows for the fusion.
     MODALITY = "both"
+    # Recurrent training: a batch = (batch // CLIP_LEN) sequence slots x CLIP_LEN consecutive frames; the first
+    # RANDOM_SLOTS slots draw random clips (RVT "mixed" sampling). 1 = ordinary shuffled single frames.
+    CLIP_LEN = 1
+    RANDOM_SLOTS = 0
 
     def __init__(
         self,
@@ -66,10 +73,16 @@ class EventRGBTrainer(DetectionTrainer):
         batch["img"] = batch["img"].float()
         if self.n_rgb:
             batch["img"][:, : self.n_rgb] /= 255  # RGB to [0, 1]; event counts stay raw (as in RVT)
+        step_memory(unwrap_model(self.model), batch["frame_idx"], self.CLIP_LEN, self.RANDOM_SLOTS)
         return batch
 
     def get_dataloader(self, dataset_path, batch_size=16, rank=0, mode="train"):
         dataset = self.build_dataset(dataset_path, mode)
+        if self.CLIP_LEN > 1:
+            assert batch_size % self.CLIP_LEN == 0, f"batch {batch_size} must be a multiple of CLIP_LEN {self.CLIP_LEN}"
+            sampler = ClipBatchSampler(dataset.match_list, batch_size // self.CLIP_LEN, self.CLIP_LEN,
+                                       shuffle=mode == "train", random_slots=self.RANDOM_SLOTS if mode == "train" else 0)
+            return InfiniteDataLoader(dataset, batch_sampler=sampler, collate_fn=collate_fn, num_workers=self.args.workers)
         return InfiniteDataLoader(
             dataset,
             batch_size=batch_size,
@@ -81,6 +94,7 @@ class EventRGBTrainer(DetectionTrainer):
     def get_validator(self):
         self.loss_names = "box_loss", "cls_loss", "dfl_loss"
         EventRGBValidator.N_RGB = self.n_rgb
+        EventRGBValidator.CLIP_LEN = self.CLIP_LEN
         return EventRGBValidator(
             self.test_loader,
             save_dir=self.save_dir,
@@ -91,6 +105,10 @@ class EventRGBTrainer(DetectionTrainer):
     def validate(self):
         self.validator.args.plots = True  # keep val plots every epoch (W&B)
         return super().validate()
+
+    def save_model(self):
+        clear_memory(unwrap_model(self.model), self.ema.ema)  # recurrent state must not end up in the checkpoint
+        super().save_model()
 
     def plot_training_samples(self, batch: dict[str, Any], ni: int) -> None:
         images = batch["img"].clone().detach()

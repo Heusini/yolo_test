@@ -39,14 +39,16 @@ class TemporalBlock(nn.Module):
         self._h = self._c = None
 
     def clear(self) -> None:
+        """Drop the state and go back to per-frame mode (called before checkpoints: clip_len is pickled with the module)."""
         self._h = self._c = None
+        self.clip_len = 1
 
     def reset(self, new_seq: torch.Tensor | None = None) -> None:
         """Zero the state of the flagged slots (bool [B]); None = all. No-op before the first forward."""
         if self._h is None:
             return
         if new_seq is None:
-            self.clear()
+            self._h = self._c = None
             return
         keep = (~new_seq.to(self._h.device)).to(self._h.dtype).view(-1, 1, 1, 1)
         self._h, self._c = self._h * keep, self._c * keep
@@ -67,3 +69,26 @@ class TemporalBlock(nn.Module):
             hs.append(h)
         self._h, self._c = h.detach(), c.detach()
         return x + self.out(torch.stack(hs, 1).view(n, C, H, W))
+
+
+def temporal_blocks(model: nn.Module) -> list[TemporalBlock]:
+    return [m for m in model.modules() if isinstance(m, TemporalBlock)]
+
+
+def step_memory(model: nn.Module, frame_idx: torch.Tensor, clip_len: int, random_slots: int = 0) -> None:
+    """Before a forward on a clip batch: set the clip length and reset slots that start a sequence (or are random)."""
+    blocks = temporal_blocks(model)
+    if not blocks:
+        return
+    new_seq = frame_idx.view(-1, clip_len)[:, 0] == 0
+    new_seq[:random_slots] = True
+    for b in blocks:
+        b.clip_len = clip_len
+        b.reset(new_seq)
+
+
+def clear_memory(*models: nn.Module) -> None:
+    for m in models:
+        if m is not None:
+            for b in temporal_blocks(m):
+                b.clear()

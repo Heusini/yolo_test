@@ -35,11 +35,11 @@ def main():
     y2 = blk(x2)
     assert not torch.allclose(y2, fresh(x2)), "state not carried across calls"
     blk.reset()
-    fresh.clear()
+    fresh.reset()
     assert torch.allclose(blk(x2), fresh(x2)), "reset() did not clear the state"
 
     blk(x1)
-    fresh.clear()
+    fresh.reset()
     blk.reset(torch.tensor([True, False]))
     y = blk(x2)
     z = fresh(x2)
@@ -52,6 +52,8 @@ def main():
     blk.clip_len = 4
     blk(torch.randn(4, C, H, W).half().float())
     assert blk._h.shape == (1, C, H, W)
+    blk.clear()
+    assert blk._h is None and blk.clip_len == 1, "clear() must drop state and clip_len (both are pickled otherwise)"
     assert "_h" not in blk.state_dict() and all("_" not in k.split(".")[0] for k in blk.state_dict()), "state leaked into state_dict"
 
     blk = randomize(TemporalBlock(C))

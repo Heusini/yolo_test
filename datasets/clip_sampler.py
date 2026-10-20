@@ -28,6 +28,8 @@ class ClipBatchSampler(Sampler):
                     clips.setdefault(m.seq, []).append(i)
         self.seq_clips = [clips[s] for s in sorted(clips)]  # per sequence: global start index of each clip
         assert self.seq_clips, f"no sequence has {clip_len} frames"
+        self.stream_slots = min(self.stream_slots, len(self.seq_clips))  # fewer sequences than slots: smaller batch
+        self.slots = self.random_slots + self.stream_slots
         self._len = sum(len(c) for c in self.seq_clips) // max(self.random_slots, 1)  # random-only case
         if self.stream_slots:
             self._len = self._plan(0)[1]
