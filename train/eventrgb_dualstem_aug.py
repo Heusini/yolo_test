@@ -5,6 +5,10 @@ examples:
   python -m train.eventrgb_dualstem_aug --name flip_drop --flip 0.5 --drop-rgb 0.15 --drop-evt 0.05
   python -m train.eventrgb_dualstem_aug --name flip_photo --flip 0.5 --photo 0.8 --blur 0 --exposure 0.6 1.6
   python -m train.eventrgb_dualstem_aug --name flip_shift --flip 0.5 --shift 2 1
+  # ConvLSTM fine-tune from the 1280 checkpoint (RVT "mixed" sampling: 2 random + 2 stream slots of 4 frames)
+  python -m train.eventrgb_dualstem_aug --name lstm1280 --data conf/eventrgb_data_720.yaml --imgsz 1280 \
+      --mem lstm --clip-len 4 --random-slots 2 --batch 16 --pretrained <best.pt> --epochs 4 --lr0 2e-4 --warmup 0 \
+      --flip 0.5 --photo 0.5 --blur 0 --exposure 0.7 1.4 --shift 2 1 --drop-rgb 0.1 --drop-evt 0.05
 """
 
 import argparse
@@ -21,7 +25,7 @@ from engine.eventrgbtrainer import EventRGBTrainer
 def parse():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--name", required=True, help="run name suffix: eventrgb_dualstem_<name>_yolo26n")
-    p.add_argument("--device", type=int, default=1)
+    p.add_argument("--device", default="1", help="GPU index or cpu")
     p.add_argument("--batch", type=int, default=16, help="train batch (val uses 2x); 8 halves GPU memory, effective batch stays 64")
     p.add_argument("--epochs", type=int, default=15)
     p.add_argument("--p2", action="store_true", help="use the P2-head variant (conf/yolo26n_evrgb_dualstem_p2.yaml)")
@@ -36,6 +40,12 @@ def parse():
     p.add_argument("--shift", type=int, nargs=2, default=(0, 0), metavar=("DX", "DY"), help="RGB-only shift in px")
     p.add_argument("--drop-rgb", type=float, default=0.0, help="modality dropout probability for RGB")
     p.add_argument("--drop-evt", type=float, default=0.0, help="modality dropout probability for events")
+    p.add_argument("--pretrained", default="./yolo26n.pt", help="single-stem (remapped) or dual-stem checkpoint")
+    p.add_argument("--mem", choices=["none", "lstm"], default="none", help="temporal block in the event stem")
+    p.add_argument("--clip-len", type=int, default=1, help="frames per sequence slot (batch = slots x clip-len)")
+    p.add_argument("--random-slots", type=int, default=0, help="slots that draw random clips instead of streaming")
+    p.add_argument("--lr0", type=float, default=None, help="fixed initial lr (sets optimizer AdamW; default: Ultralytics auto)")
+    p.add_argument("--warmup", type=float, default=None, help="warmup epochs (default: Ultralytics 3)")
     return p.parse_args()
 
 
@@ -68,8 +78,16 @@ def main():
     EventRGBTrainer.MODALITY = a.modality
     if a.baseline and (a.drop_rgb or a.drop_evt):
         raise SystemExit("modality dropout lives in DualStemFuse; not available with --baseline / single modality")
+    if a.mem != "none" and (a.baseline or a.clip_len < 2):
+        raise SystemExit("--mem needs the dual stem and --clip-len >= 2")
+    if a.clip_len > 1 and (a.batch % a.clip_len or a.random_slots > a.batch // a.clip_len):
+        raise SystemExit(f"--batch {a.batch} must be a multiple of --clip-len {a.clip_len}, --random-slots <= slots")
+    EventRGBTrainer.CLIP_LEN = a.clip_len
+    EventRGBTrainer.RANDOM_SLOTS = a.random_slots
+    DualStemTrainer.MEM = a.mem
     print(f"augmentation: flip={a.flip} photo={a.photo} (blur<={a.blur}, exposure={a.exposure}) shift={a.shift} "
           f"drop_rgb={a.drop_rgb} drop_evt={a.drop_evt}")
+    print(f"memory: {a.mem} clip_len={a.clip_len} random_slots={a.random_slots} pretrained={a.pretrained}")
 
     if a.baseline:
         prefix = {"both": "eventrgb_baseline", "rgb": "rgbonly", "event": "eventonly"}[a.modality]
@@ -80,14 +98,14 @@ def main():
     trainer = trainer_cls(
         overrides=dict(
             model=model,
-            pretrained="./yolo26n.pt",
+            pretrained=a.pretrained,
             data=a.data,
             epochs=a.epochs,
             workers=8,
             batch=a.batch,
             project="yolo",
             name=f"{prefix}_{a.name}_yolo26n",
-            device=[a.device],
+            device="cpu" if a.device == "cpu" else [int(a.device)],
             imgsz=a.imgsz,
             rect=True,
             save_json=True,
@@ -96,6 +114,8 @@ def main():
             hsv_s=0,
             hsv_v=0,
             mosaic=0,
+            **({"optimizer": "AdamW", "lr0": a.lr0} if a.lr0 is not None else {}),  # optimizer=auto ignores lr0
+            **({"warmup_epochs": a.warmup} if a.warmup is not None else {}),
         )
     )
     trainer.train()
