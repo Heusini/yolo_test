@@ -46,6 +46,8 @@ def parse():
     p.add_argument("--random-slots", type=int, default=0, help="slots that draw random clips instead of streaming")
     p.add_argument("--lr0", type=float, default=None, help="fixed initial lr (sets optimizer AdamW; default: Ultralytics auto)")
     p.add_argument("--warmup", type=float, default=None, help="warmup epochs (default: Ultralytics 3)")
+    p.add_argument("--freeze", choices=["none", "mem"], default="none",
+                   help="mem: train only the temporal block and the gate (everything else frozen, BN stats fixed)")
     return p.parse_args()
 
 
@@ -80,6 +82,8 @@ def main():
         raise SystemExit("modality dropout lives in DualStemFuse; not available with --baseline / single modality")
     if a.mem != "none" and (a.baseline or a.clip_len < 2):
         raise SystemExit("--mem needs the dual stem and --clip-len >= 2")
+    if a.freeze == "mem" and a.mem == "none":
+        raise SystemExit("--freeze mem needs --mem lstm")
     if a.clip_len > 1 and (a.batch % a.clip_len or a.random_slots > a.batch // a.clip_len):
         raise SystemExit(f"--batch {a.batch} must be a multiple of --clip-len {a.clip_len}, --random-slots <= slots")
     EventRGBTrainer.CLIP_LEN = a.clip_len
@@ -116,6 +120,8 @@ def main():
             mosaic=0,
             **({"optimizer": "AdamW", "lr0": a.lr0} if a.lr0 is not None else {}),  # optimizer=auto ignores lr0
             **({"warmup_epochs": a.warmup} if a.warmup is not None else {}),
+            # layer 0 = DualStemFuse: both stems frozen, evt_mem + fuse train; 1 = Index, 2..20 trunk + neck, 21 = Detect
+            **({"freeze": ["0.rgb_stem", "0.evt_stem"] + list(range(1, 22))} if a.freeze == "mem" else {}),
         )
     )
     trainer.train()
