@@ -3,7 +3,13 @@
 usage (repo root):
   python test/robustness_eval.py <ckpt.pt> [<ckpt2.pt> ...] --data conf/<data>.yaml --imgsz 1280 --device 0
   optional: --conditions clean rgb_zero evt_zero rgb_dark rgb_bright rgb_noise rgb_shift2 rgb_shift4 rgb_shift8 rgb_prev
+                        evt_half evt_double evt_noise evt_drop evt_shift1 evt_shift2 evt_shift3 evt_shift4 evt_shift5
   recurrent checkpoints: add --clip-len 16 (batch // clip-len streaming slots); run the stateless reference with the same value
+
+event rows (counts are raw, cutoff EVT_CUTOFF): evt_half / evt_double scale the counts (bias or lighting change),
+evt_noise adds background events to EVT_NOISE_P of the pixel-bins, evt_drop thins every event with p = EVT_DROP_P.
+evt_shift{k}: the event window ends k bins (k * BIN_MS) after the RGB exposure, built from this frame's and the next
+frame's bins (layout EVT_LAYOUT); k = N_BINS is a whole frame, i.e. the rgb_prev offset seen from the RGB side.
 """
 
 import argparse
@@ -25,7 +31,13 @@ from engine.basetrainer import collate_fn
 from engine.eventrgbvalidator import EventRGBValidator
 from ultralytics import YOLO
 
-CONDITIONS = ["clean", "rgb_zero", "evt_zero", "rgb_dark", "rgb_bright", "rgb_noise", "rgb_shift2", "rgb_shift4", "rgb_shift8", "rgb_prev"]
+N_BINS = 5  # time bins per polarity; channel layout "(polarity bin) H W", bins ascending in time (RVT stacked histogram)
+BIN_MS = 33.3 / N_BINS
+EVT_CUTOFF = 10  # count cutoff of the export
+EVT_NOISE_P = 0.005  # fraction of pixel-bins that receive a background event
+EVT_DROP_P = 0.3  # probability that a single event is dropped
+CONDITIONS = ["clean", "rgb_zero", "evt_zero", "rgb_dark", "rgb_bright", "rgb_noise", "rgb_shift2", "rgb_shift4", "rgb_shift8", "rgb_prev",
+              "evt_half", "evt_double", "evt_noise", "evt_drop"] + [f"evt_shift{k}" for k in range(1, N_BINS + 1)]
 
 
 class PrevRGB(Dataset):
@@ -47,6 +59,32 @@ class PrevRGB(Dataset):
         return d
 
 
+class ShiftEvt(Dataset):
+    """Event window shifted k bins later: the newest k bins come from the next frame (same sequence; last frame keeps its own)."""
+
+    def __init__(self, ds: ArmasuisseDataset, k: int):
+        self.ds = ds
+        self.k = k
+
+    def __len__(self):
+        return len(self.ds)
+
+    @staticmethod
+    def shift(cur: torch.Tensor, nxt: torch.Tensor, k: int) -> torch.Tensor:
+        """cur, nxt: [2 * N_BINS, H, W] raw counts -> window of N_BINS ending k bins into nxt."""
+        both = torch.cat([cur.view(2, N_BINS, *cur.shape[-2:]), nxt.view(2, N_BINS, *nxt.shape[-2:])], 1)
+        return both[:, k : k + N_BINS].reshape_as(cur)
+
+    def __getitem__(self, i):
+        d = self.ds[i]
+        m = self.ds.match_list[i]
+        if m.pos < m.seq_len - 1:
+            nxt = torch.from_numpy(np.load(self.ds.match_list[i + 1].event_path))
+            d["img"] = d["img"].clone()
+            d["img"][3:] = self.shift(d["img"][3:], nxt, self.k)
+        return d
+
+
 def perturb(img: torch.Tensor, cond: str) -> torch.Tensor:
     """img: float batch after preprocess (RGB in [0,1], events raw counts)."""
     rgb, evt = img[:, :3], img[:, 3:]
@@ -62,6 +100,14 @@ def perturb(img: torch.Tensor, cond: str) -> torch.Tensor:
         rgb = (rgb + torch.randn_like(rgb) * 0.05).clamp(0, 1)
     elif cond.startswith("rgb_shift"):
         rgb = RGBShiftTransformer.shift(rgb, int(cond[9:]), 0)
+    elif cond == "evt_half":
+        evt = (evt * 0.5).round()
+    elif cond == "evt_double":
+        evt = (evt * 2).clamp(max=EVT_CUTOFF)
+    elif cond == "evt_noise":
+        evt = (evt + (torch.rand_like(evt) < EVT_NOISE_P)).clamp(max=EVT_CUTOFF)
+    elif cond == "evt_drop":
+        evt = torch.distributions.Binomial(evt, torch.full_like(evt, 1 - EVT_DROP_P)).sample()
     return torch.cat([rgb, evt], 1)
 
 
@@ -71,6 +117,8 @@ class RobustValidator(EventRGBValidator):
     def get_dataloader(self, dataset_path, batch_size):
         arma = ArmasuisseDataset(dataset_path, True, True)
         ds = PrevRGB(arma) if self.condition == "rgb_prev" else arma
+        if self.condition.startswith("evt_shift"):
+            ds = ShiftEvt(arma, int(self.condition[9:]))
         h, w = arma.get_im_shape()
         ds = YoloConverter(dataset_path, PadTransformer(ds, (0, -w % 32, 0, -h % 32)))
         if self.CLIP_LEN > 1:  # recurrent checkpoints: batch = slots x CLIP_LEN consecutive frames, state carried per slot
