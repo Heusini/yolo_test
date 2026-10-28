@@ -5,6 +5,7 @@ examples:
   python -m train.eventrgb_dualstem_aug --name flip_drop --flip 0.5 --drop-rgb 0.15 --drop-evt 0.05
   python -m train.eventrgb_dualstem_aug --name flip_photo --flip 0.5 --photo 0.8 --blur 0 --exposure 0.6 1.6
   python -m train.eventrgb_dualstem_aug --name flip_shift --flip 0.5 --shift 2 1
+  python -m train.eventrgb_dualstem_aug --name zoom --flip 0.5 --zoom 0.5 1.5 --zoom-out 1.2
   # ConvLSTM fine-tune from the 1280 checkpoint (RVT "mixed" sampling: 2 random + 2 stream slots of 4 frames)
   python -m train.eventrgb_dualstem_aug --name lstm1280 --data conf/eventrgb_data_720.yaml --imgsz 1280 \
       --mem lstm --clip-len 4 --random-slots 2 --batch 16 --pretrained <best.pt> --epochs 4 --lr0 2e-4 --warmup 0 \
@@ -37,6 +38,8 @@ def parse():
     p.add_argument("--photo", type=float, default=0.0, help="RGB photometric jitter probability")
     p.add_argument("--blur", type=int, default=15, help="max motion-blur kernel in px for --photo (0 = no blur)")
     p.add_argument("--exposure", type=float, nargs=2, default=(0.3, 2.5), metavar=("LO", "HI"), help="exposure factor range for --photo")
+    p.add_argument("--zoom", type=float, nargs=2, default=(0.0, 1.5), metavar=("P", "ZIN"), help="zoom probability and max zoom-in factor (crop 1/ZIN, resize back)")
+    p.add_argument("--zoom-out", type=float, default=1.0, metavar="ZOUT", help="max zoom-out factor (shrink, zero canvas); taken in 1/3 of the zoomed frames. 1 = off")
     p.add_argument("--shift", type=int, nargs=2, default=(0, 0), metavar=("DX", "DY"), help="RGB-only shift in px")
     p.add_argument("--drop-rgb", type=float, default=0.0, help="modality dropout probability for RGB")
     p.add_argument("--drop-evt", type=float, default=0.0, help="modality dropout probability for events")
@@ -72,6 +75,8 @@ def main():
     EventRGBTrainer.RGB_PHOTOMETRIC_P = a.photo
     EventRGBTrainer.RGB_PHOTOMETRIC_KW = dict(blur_max=a.blur, exposure=tuple(a.exposure))
     EventRGBTrainer.RGB_SHIFT_PX = tuple(a.shift)
+    EventRGBTrainer.ZOOM_P, EventRGBTrainer.ZOOM_IN = a.zoom
+    EventRGBTrainer.ZOOM_OUT = a.zoom_out
     DualStemTrainer.P_DROP_RGB = a.drop_rgb
     DualStemTrainer.P_DROP_EVT = a.drop_evt
     if a.modality != "both":
@@ -89,7 +94,7 @@ def main():
     EventRGBTrainer.CLIP_LEN = a.clip_len
     EventRGBTrainer.RANDOM_SLOTS = a.random_slots
     DualStemTrainer.MEM = a.mem
-    print(f"augmentation: flip={a.flip} photo={a.photo} (blur<={a.blur}, exposure={a.exposure}) shift={a.shift} "
+    print(f"augmentation: flip={a.flip} photo={a.photo} (blur<={a.blur}, exposure={a.exposure}) shift={a.shift} zoom={a.zoom} zoom_out={a.zoom_out} "
           f"drop_rgb={a.drop_rgb} drop_evt={a.drop_evt}")
     print(f"memory: {a.mem} clip_len={a.clip_len} random_slots={a.random_slots} pretrained={a.pretrained}")
 

@@ -16,6 +16,7 @@ from datasets.flip_transformer import HFlipTransformer
 from datasets.pad_transformer import PadTransformer
 from datasets.rgb_photometric_transformer import RGBPhotometricTransformer
 from datasets.rgb_shift_transformer import RGBShiftTransformer
+from datasets.zoom_transformer import ZoomTransformer
 from datasets.yolo_converter import YoloConverter
 from engine.basetrainer import collate_fn
 from engine.eventrgbvalidator import EventRGBValidator
@@ -30,6 +31,10 @@ class EventRGBTrainer(DetectionTrainer):
     RGB_PHOTOMETRIC_KW = {}
     # Horizontal flip of both modalities + boxes (train only): probability. 0 = off.
     HFLIP_P = 0.0
+    # Zoom of both modalities + boxes (train only): probability, max zoom-in factor, max zoom-out factor (1 = off).
+    ZOOM_P = 0.0
+    ZOOM_IN = 1.5
+    ZOOM_OUT = 1.0
     # "both" (13 ch), "rgb" (3 ch) or "event" (10 ch). Single-modality runs are the reference rows for the fusion.
     MODALITY = "both"
     # Recurrent training: a batch = (batch // CLIP_LEN) sequence slots x CLIP_LEN consecutive frames; the first
@@ -55,6 +60,8 @@ class EventRGBTrainer(DetectionTrainer):
 
     def build_dataset(self, img_path, mode="train", batch=None):
         arma = ds = ArmasuisseDataset(img_path, self.load_rgb, self.load_evt)
+        if mode == "train" and self.ZOOM_P > 0:
+            ds = ZoomTransformer(ds, p=self.ZOOM_P, zin=self.ZOOM_IN, zout=self.ZOOM_OUT, c_rgb=3 if self.load_rgb else 0)
         if mode == "train" and self.load_rgb and any(self.RGB_SHIFT_PX):
             ds = RGBShiftTransformer(ds, *self.RGB_SHIFT_PX)
         if mode == "train" and self.load_rgb and self.RGB_PHOTOMETRIC_P > 0:
