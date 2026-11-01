@@ -68,7 +68,7 @@ def test_update_metrics_accumulates_per_bucket():
     import numpy as np
     from size_eval import SizeValidator, bucket_results
 
-    SizeValidator.setup([12, 24, 48])
+    SizeValidator.setup([12, 24, 48], coco=True)
     v = SizeValidator(args={"task": "detect", "plots": False, "save_json": False, "save_txt": False, "single_cls": False})
     v.device = torch.device("cpu")
     v.metrics.names = {0: "drone"}
@@ -98,3 +98,27 @@ def test_update_metrics_accumulates_per_bucket():
     assert n_gt == 1 and r > 0.99 and m50 > 0.99  # the false positive ranks below the true positive
     all_stats = {k: np.concatenate(v_, 0) for k, v_ in v.metrics.stats.items()}
     assert all_stats["target_cls"].size == 2 and all_stats["conf"].size == 3
+    cp = SizeValidator.coco_preds
+    assert len(cp) == 3 and cp[0] == {"image_id": 0, "category_id": 1, "bbox": [100.0, 100.0, 10.0, 10.0], "score": cp[0]["score"]}
+    assert abs(cp[0]["score"] - 0.9) < 1e-6 and cp[2]["image_id"] == 1 and cp[2]["bbox"] == [500.0, 300.0, 30.0, 30.0]
+
+
+def test_coco_eval_perfect_predictions():
+    """Ground truth built from a fake split must score AP 1.0 when the predictions are the labels themselves."""
+    import numpy as np
+    from size_eval import COCO_KEYS, coco_eval, coco_ground_truth, coco_results
+
+    val_dir = "/home/sebastian/.cache/yolo_test_cpu/fake720/val"
+    gt = coco_ground_truth(val_dir, {0: "drone"})
+    assert len(gt["images"]) > 0 and len(gt["annotations"]) > 0 and gt["categories"] == [{"id": 1, "name": "drone"}]
+    assert all(a["bbox"][2] > 0 and a["bbox"][3] > 0 for a in gt["annotations"])
+    preds = []
+    for img in gt["images"]:
+        anns = [a for a in gt["annotations"] if a["image_id"] == img["id"]]
+        if anns:
+            xyxy = torch.tensor([[a["bbox"][0], a["bbox"][1], a["bbox"][0] + a["bbox"][2], a["bbox"][1] + a["bbox"][3]] for a in anns])
+            preds += coco_results(img["id"], xyxy, torch.full((len(anns),), 0.9), torch.zeros(len(anns)))
+    r = coco_eval(gt, preds)
+    assert list(r) == COCO_KEYS
+    assert r["AP"] > 0.99 and r["AP50"] > 0.99 and r["AR100"] > 0.99
+    assert all(np.isnan(v) for v in coco_eval(gt, []).values())
