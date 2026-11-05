@@ -1,0 +1,39 @@
+# YOLO26 with two complete backbones (RGB tower + event tower) and a gate per pyramid level, nc=1. Load via a scale
+# name through evrgb.config.load_dualstem_cfg("conf/yolo26n_evrgb_twotower.yaml"); it fills the scale triple into the
+# TwoTowerFuse args and scales the Index channels (full-width units here like every other line).
+
+nc: 1
+end2end: True
+reg_max: 1
+scales: # [depth, width, max_channels]
+  n: [0.50, 0.25, 1024]
+  s: [0.50, 0.50, 1024]
+  m: [0.50, 1.00, 512]
+  l: [1.00, 1.00, 512]
+  x: [1.00, 1.50, 512]
+
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, TwoTowerFuse, [13, 3, scale, 0.0, 0.0]] # 0: [c_in, c_rgb, scale (filled in as [depth, width, max_channels]), p_drop_rgb, p_drop_evt]
+  - [0, 1, Index, [512, 0]] # 1: fused P3/8
+  - [0, 1, Index, [512, 1]] # 2: fused P4/16
+  - [0, 1, Index, [1024, 2]] # 3: fused P5/32
+
+head:
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [[-1, 2], 1, Concat, [1]] # cat P4
+  - [-1, 2, C3k2, [512, True]] # 6
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [[-1, 1], 1, Concat, [1]] # cat P3
+  - [-1, 2, C3k2, [256, True]] # 9 (P3/8-small)
+
+  - [-1, 1, Conv, [256, 3, 2]]
+  - [[-1, 6], 1, Concat, [1]] # cat head P4
+  - [-1, 2, C3k2, [512, True]] # 12 (P4/16-medium)
+
+  - [-1, 1, Conv, [512, 3, 2]]
+  - [[-1, 3], 1, Concat, [1]] # cat P5
+  - [-1, 1, C3k2, [1024, True, 0.5, True]] # 15 (P5/32-large)
+
+  - [[9, 12, 15], 1, Detect, [nc]] # Detect(P3, P4, P5)

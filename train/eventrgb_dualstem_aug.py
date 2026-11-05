@@ -6,6 +6,8 @@ examples:
   python -m train.eventrgb_dualstem_aug --name flip_photo --flip 0.5 --photo 0.8 --blur 0 --exposure 0.6 1.6
   python -m train.eventrgb_dualstem_aug --name flip_shift --flip 0.5 --shift 2 1
   python -m train.eventrgb_dualstem_aug --name zoom --flip 0.5 --zoom 0.5 1.5 --zoom-out 1.2
+  # two-tower model (gate per level), from COCO weights or from a dual-stem checkpoint (stems + trunk remapped)
+  python -m train.eventrgb_dualstem_aug --name tower --tower --flip 0.5 --zoom 0.5 1.5 --zoom-out 1.2 --pretrained ./yolo26n.pt
   # ConvLSTM fine-tune from the 1280 checkpoint (RVT "mixed" sampling: 2 random + 2 stream slots of 4 frames)
   python -m train.eventrgb_dualstem_aug --name lstm1280 --data conf/eventrgb_data_720.yaml --imgsz 1280 \
       --mem lstm --clip-len 4 --random-slots 2 --batch 16 --pretrained <best.pt> --epochs 4 --lr0 2e-4 --warmup 0 \
@@ -30,6 +32,7 @@ def parse():
     p.add_argument("--batch", type=int, default=16, help="train batch (val uses 2x); 8 halves GPU memory, effective batch stays 64")
     p.add_argument("--epochs", type=int, default=15)
     p.add_argument("--p2", action="store_true", help="use the P2-head variant (conf/yolo26n_evrgb_dualstem_p2.yaml)")
+    p.add_argument("--tower", action="store_true", help="two full backbones with a gate per level (conf/yolo26n_evrgb_twotower.yaml)")
     p.add_argument("--baseline", action="store_true", help="plain 13-channel yolo26n (conf/yolo26n_evrgb.yaml) instead of the dual stem")
     p.add_argument("--modality", choices=["both", "rgb", "event"], default="both", help="single-modality reference runs (implies --baseline)")
     p.add_argument("--data", default="./conf/eventrgb_data.yaml", help="data yaml")
@@ -89,6 +92,8 @@ def main():
         raise SystemExit("--mem needs the dual stem and --clip-len >= 2")
     if a.freeze == "mem" and a.mem == "none":
         raise SystemExit("--freeze mem needs --mem lstm")
+    if a.tower and (a.p2 or a.baseline or a.freeze == "mem"):
+        raise SystemExit("--tower excludes --p2, --baseline and --freeze mem")
     if a.clip_len > 1 and (a.batch % a.clip_len or a.random_slots > a.batch // a.clip_len):
         raise SystemExit(f"--batch {a.batch} must be a multiple of --clip-len {a.clip_len}, --random-slots <= slots")
     EventRGBTrainer.CLIP_LEN = a.clip_len
@@ -104,6 +109,8 @@ def main():
     else:
         variant = "_p2" if a.p2 else ""
         trainer_cls, model, prefix = DualStemTrainer, f"./conf/yolo26n_evrgb_dualstem{variant}.yaml", f"eventrgb_dualstem{variant}"
+        if a.tower:
+            model, prefix = "./conf/yolo26n_evrgb_twotower.yaml", "eventrgb_twotower"
     trainer = trainer_cls(
         overrides=dict(
             model=model,

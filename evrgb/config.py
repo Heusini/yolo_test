@@ -25,12 +25,18 @@ def load_dualstem_cfg(cfg: str | Path | dict) -> dict:
         return make_divisible(min(c, max_channels) * width, 8)
 
     layers = d["backbone"] + d["head"]
-    dual = next(i for i, l in enumerate(layers) if l[2] == "DualStemFuse")
+    dual = next(i for i, l in enumerate(layers) if l[2] in ("DualStemFuse", "TwoTowerFuse"))
     args = layers[dual][3]
-    args[2] = ch(args[2])
-    args[4] = max(round(args[4] * depth), 1)
-    for i, (f, _, module, a) in enumerate(layers):
-        if module == "Index" and (i == dual + 1 or f == dual):
-            a[0] = args[2]
+    if layers[dual][2] == "TwoTowerFuse":  # [c_in, c_rgb, scale triple, p_drop_rgb, p_drop_evt]; Index lines in full-width units
+        args[2] = [depth, width, max_channels]
+        for i, (f, _, module, a) in enumerate(layers):
+            if module == "Index" and (i == dual + 1 or f == dual):
+                a[0] = ch(a[0])
+    else:
+        args[2] = ch(args[2])
+        args[4] = max(round(args[4] * depth), 1)
+        for i, (f, _, module, a) in enumerate(layers):
+            if module == "Index" and (i == dual + 1 or f == dual):
+                a[0] = args[2]
     d["dualstem_resolved"] = True
     return d

@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 import torch
 import torch.nn as nn
 
@@ -68,11 +70,12 @@ class DualStemFuse(nn.Module):
         if fuse_p2:
             assert evt_width == 1.0, "fuse_p2 needs equal stride-4 widths in both stems (evt_width=1.0)"
 
+    @property
+    def mem_channels(self) -> int:
+        return self.evt_stem[3].conv.out_channels
+
     def _drop(self, x: torch.Tensor, p: float) -> torch.Tensor:
-        if not self.training or p <= 0:
-            return x
-        keep = (torch.rand(x.shape[0], 1, 1, 1, device=x.device) >= p).to(x.dtype)
-        return x * keep
+        return _drop(self, x, p)
 
     def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
         rgb = self._drop(x[:, : self.c_rgb], self.p_drop_rgb)
@@ -88,9 +91,99 @@ class DualStemFuse(nn.Module):
         return out
 
 
+def _drop(module: nn.Module, x: torch.Tensor, p: float) -> torch.Tensor:
+    """Modality dropout: zero the whole sample with probability p (train mode only)."""
+    if not module.training or p <= 0:
+        return x
+    keep = (torch.rand(x.shape[0], 1, 1, 1, device=x.device) >= p).to(x.dtype)
+    return x * keep
+
+
+# Official yolo26 backbone (full-width units) and the layers whose outputs are P3, P4, P5.
+YOLO26_BACKBONE = [
+    [-1, 1, "Conv", [64, 3, 2]],
+    [-1, 1, "Conv", [128, 3, 2]],
+    [-1, 2, "C3k2", [256, False, 0.25]],
+    [-1, 1, "Conv", [256, 3, 2]],
+    [-1, 2, "C3k2", [512, False, 0.25]],
+    [-1, 1, "Conv", [512, 3, 2]],
+    [-1, 2, "C3k2", [512, True]],
+    [-1, 1, "Conv", [1024, 3, 2]],
+    [-1, 2, "C3k2", [1024, True]],
+    [-1, 1, "SPPF", [1024, 5, 3, True]],
+    [-1, 2, "C2PSA", [1024]],
+]
+YOLO26_SCALES = {"n": [0.50, 0.25, 1024], "s": [0.50, 0.50, 1024], "m": [0.50, 1.00, 512], "l": [1.00, 1.00, 512], "x": [1.00, 1.50, 512]}
+TOWER_TAPS = (4, 6, 10)
+
+
+def _tower(c_in: int, scale: str | list | tuple) -> nn.Sequential:
+    """One yolo26 backbone. `scale`: scale name or its [depth, width, max_channels] triple (a yaml arg must be the
+    triple: parse_model replaces string args that happen to be its local names, e.g. "n", "m")."""
+    from ultralytics.nn.tasks import parse_model
+
+    triple = YOLO26_SCALES[scale] if isinstance(scale, str) else list(scale)
+    d = {"nc": 1, "scale": "t", "scales": {"t": triple}, "backbone": deepcopy(YOLO26_BACKBONE), "head": []}
+    seq, _ = parse_model(d, ch=c_in, verbose=False)
+    return seq
+
+
+class TwoTowerFuse(nn.Module):
+    """Two complete YOLO26 backbones (RGB, events) with a gate per pyramid level.
+
+        rgb -> rgb_tower -> (P3, P4, P5)_rgb
+        evt -> evt_tower -> (P3 -> evt_mem, P4, P5)_evt
+        fused_k = g_k * rgb_k + (1 - g_k) * evt_k   for k in P3, P4, P5
+    returns [fused_P3, fused_P4, fused_P5, g_P3, g_P4, g_P5]; the YAML picks the fused maps with `Index [c, k]`.
+    `scale` is the yolo26 scale name or its [depth, width, max_channels] triple; evrgb.config.load_dualstem_cfg fills
+    the triple of the yaml's scale into the args.
+    """
+
+    def __init__(self, c_in: int = 13, c_rgb: int = 3, scale="n", p_drop_rgb: float = 0.0, p_drop_evt: float = 0.0):
+        super().__init__()
+        self.c_rgb, self.c_evt = c_rgb, c_in - c_rgb
+        self.p_drop_rgb, self.p_drop_evt = p_drop_rgb, p_drop_evt
+        self.rgb_tower = _tower(c_rgb, scale)
+        self.evt_tower = _tower(self.c_evt, scale)
+        self.evt_mem = nn.Identity()  # slot for a temporal block on the event P3 map
+        chs = [_out_channels(self.evt_tower[i]) for i in TOWER_TAPS]
+        self.fuse = nn.ModuleList(GatedFuse(c) for c in chs)
+
+    @property
+    def mem_channels(self) -> int:
+        return _out_channels(self.evt_tower[TOWER_TAPS[0]])
+
+    @staticmethod
+    def _run(tower: nn.Sequential, x: torch.Tensor) -> list[torch.Tensor]:
+        taps = []
+        for i, m in enumerate(tower):
+            x = m(x)
+            if i in TOWER_TAPS:
+                taps.append(x)
+        return taps
+
+    def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
+        rgb = _drop(self, x[:, : self.c_rgb], self.p_drop_rgb)
+        evt = _drop(self, x[:, self.c_rgb :], self.p_drop_evt)
+        f_rgb = self._run(self.rgb_tower, rgb)
+        f_evt = self._run(self.evt_tower, evt)
+        f_evt[0] = self.evt_mem(f_evt[0])
+        fused, gates = [], []
+        for fuse, r, e in zip(self.fuse, f_rgb, f_evt):
+            o, g = fuse(r, e)
+            fused.append(o)
+            gates.append(g)
+        return fused + gates
+
+
+def _out_channels(m: nn.Module) -> int:
+    return m.cv2.conv.out_channels if hasattr(m, "cv2") else m.conv.out_channels
+
+
 def register() -> None:
     """Make the modules resolvable by name in Ultralytics' parse_model (it looks up ultralytics.nn.tasks globals)."""
     import ultralytics.nn.tasks as tasks
 
     tasks.DualStemFuse = DualStemFuse
+    tasks.TwoTowerFuse = TwoTowerFuse
     tasks.GatedFuse = GatedFuse
