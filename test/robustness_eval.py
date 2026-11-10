@@ -23,6 +23,7 @@ from torch.utils.data import DataLoader, Dataset
 sys.path.append("./")
 import evrgb  # noqa: F401  (registers DualStemFuse for checkpoint loading)
 from datasets.aramsuisse_dataset import ArmasuisseDataset
+from datasets.basedataset import load_array
 from datasets.clip_sampler import ClipBatchSampler
 from datasets.pad_transformer import PadTransformer
 from datasets.rgb_shift_transformer import RGBShiftTransformer
@@ -53,7 +54,7 @@ class PrevRGB(Dataset):
         d = self.ds[i]
         m = self.ds.match_list[i]
         if m.pos > 0:
-            prev = np.load(self.ds.match_list[i - 1].frame_path)
+            prev = load_array(self.ds.match_list[i - 1].frame_path)
             d["img"] = d["img"].clone()
             d["img"][:3] = torch.from_numpy(prev).permute(2, 0, 1)
         return d
@@ -79,7 +80,7 @@ class ShiftEvt(Dataset):
         d = self.ds[i]
         m = self.ds.match_list[i]
         if m.pos < m.seq_len - 1:
-            nxt = torch.from_numpy(np.load(self.ds.match_list[i + 1].event_path))
+            nxt = torch.from_numpy(load_array(self.ds.match_list[i + 1].event_path))
             d["img"] = d["img"].clone()
             d["img"][3:] = self.shift(d["img"][3:], nxt, self.k)
         return d

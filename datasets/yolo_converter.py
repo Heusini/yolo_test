@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from pathlib import Path
-from datasets.basedataset import create_matching_items, load_label
+from datasets.basedataset import create_matching_items, load_array, load_label
 from multiprocessing.pool import ThreadPool
 from itertools import repeat
 from ultralytics.data.utils import save_dataset_cache_file, load_dataset_cache_file
@@ -122,7 +122,7 @@ class YoloConverter(Dataset):
 
     def get_im_shape(self):
         if self.im_width is None:
-            event = np.load(self.match_list[0].event_path)
+            event = load_array(self.match_list[0].event_path)
             self.im_width = event.shape[-1]
             self.im_height = event.shape[-2]
 

@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from datasets.basedataset import BaseDataset
+from datasets.basedataset import BaseDataset, load_array
 
 
 def get_boxes_from_labels_xyxy(labels):
@@ -24,11 +24,11 @@ class ArmasuisseDataset(BaseDataset):
         event = None
         frame = None
         if self.load_events:
-            event = np.load(match.event_path)
+            event = load_array(match.event_path)
             event = torch.from_numpy(event)
 
         if self.load_rgbs:
-            frame = np.load(match.frame_path)
+            frame = load_array(match.frame_path)
             frame = torch.from_numpy(frame)
             frame = frame.permute(-1, 0, 1)
 
@@ -69,11 +69,11 @@ class ArmasuisseDataset(BaseDataset):
     def get_im_shape(self):
         if self.im_width is None:
             if self.load_rgbs:
-                rgb = np.load(self.match_list[0].frame_path)  # HWC
+                rgb = load_array(self.match_list[0].frame_path)  # HWC
                 self.im_height = rgb.shape[0]
                 self.im_width = rgb.shape[1]
             else:
-                event = np.load(self.match_list[0].event_path)
+                event = load_array(self.match_list[0].event_path)
                 self.im_width = event.shape[-1]
                 self.im_height = event.shape[-2]
 

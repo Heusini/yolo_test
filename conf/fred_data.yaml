@@ -1,0 +1,11 @@
+# FRED (Florence RGB-Event Drone Dataset) converted with preprocess_armasuisse_dataset/fred.py:
+# train = FRED train split, val = FRED test split, stride 5, labeled frames only, jpg RGB + npz event histograms.
+path: /scratch/sheusinger/fred_720_1280_33333_10/
+train: train
+val: val
+
+channels: 13
+imgsz: [720, 1280]
+
+names:
+  0: drone

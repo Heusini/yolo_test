@@ -2,6 +2,7 @@ import json
 import torch
 from typing import Any, List, Tuple
 import os
+import cv2
 import numpy as np
 
 import random
@@ -63,6 +64,17 @@ def create_matching_items(path: Path):
         # return match_list
 
     return match_list
+
+
+def load_array(path: Path) -> np.ndarray:
+    """npy / npz (first array) / jpg+png (as RGB) -> ndarray."""
+    suffix = path.suffix.lower()
+    if suffix == ".npz":
+        with np.load(path) as f:
+            return f["arr_0"]
+    if suffix in (".jpg", ".jpeg", ".png"):
+        return cv2.cvtColor(cv2.imread(str(path)), cv2.COLOR_BGR2RGB)
+    return np.load(path)
 
 
 def load_label(args: tuple) -> list:
