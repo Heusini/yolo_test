@@ -12,6 +12,8 @@ examples:
   python -m train.eventrgb_dualstem_aug --name lstm1280 --data conf/eventrgb_data_720.yaml --imgsz 1280 \
       --mem lstm --clip-len 4 --random-slots 2 --batch 16 --pretrained <best.pt> --epochs 4 --lr0 2e-4 --warmup 0 \
       --flip 0.5 --photo 0.5 --blur 0 --exposure 0.7 1.4 --shift 2 1 --drop-rgb 0.1 --drop-evt 0.05
+  # loss gains (Ultralytics defaults box 7.5, cls 0.5, dfl 1.5; for YOLO26 "dfl" is the L1 on the box edges)
+  python -m train.eventrgb_dualstem_aug --name cls_heavy --box 3 --cls 1.5 --dfl 0.5 ...
 """
 
 import argparse
@@ -52,6 +54,9 @@ def parse():
     p.add_argument("--random-slots", type=int, default=0, help="slots that draw random clips instead of streaming")
     p.add_argument("--lr0", type=float, default=None, help="fixed initial lr (sets optimizer AdamW; default: Ultralytics auto)")
     p.add_argument("--warmup", type=float, default=None, help="warmup epochs (default: Ultralytics 3)")
+    p.add_argument("--box", type=float, default=None, help="box (CIoU) loss gain (default: Ultralytics 7.5)")
+    p.add_argument("--cls", type=float, default=None, help="classification loss gain (default: Ultralytics 0.5)")
+    p.add_argument("--dfl", type=float, default=None, help="box-edge L1 loss gain (default: Ultralytics 1.5)")
     p.add_argument("--freeze", choices=["none", "mem"], default="none",
                    help="mem: train only the temporal block and the gate (everything else frozen, BN stats fixed)")
     return p.parse_args()
@@ -132,6 +137,7 @@ def main():
             mosaic=0,
             **({"optimizer": "AdamW", "lr0": a.lr0} if a.lr0 is not None else {}),  # optimizer=auto ignores lr0
             **({"warmup_epochs": a.warmup} if a.warmup is not None else {}),
+            **{k: v for k, v in (("box", a.box), ("cls", a.cls), ("dfl", a.dfl)) if v is not None},
             # layer 0 = DualStemFuse: both stems frozen, evt_mem + fuse train; 1 = Index, 2..20 trunk + neck, 21 = Detect
             **({"freeze": ["0.rgb_stem", "0.evt_stem"] + list(range(1, 22))} if a.freeze == "mem" else {}),
         )
