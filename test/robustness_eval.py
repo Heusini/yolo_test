@@ -4,6 +4,7 @@ usage (repo root):
   python test/robustness_eval.py <ckpt.pt> [<ckpt2.pt> ...] --data conf/<data>.yaml --imgsz 1280 --device 0
   optional: --conditions clean rgb_zero evt_zero rgb_dark rgb_bright rgb_noise rgb_shift2 rgb_shift4 rgb_shift8 rgb_prev
                         evt_half evt_double evt_noise evt_drop evt_shift1 evt_shift2 evt_shift3 evt_shift4 evt_shift5
+  --min-box 24: grow the labels like the training run did (train/eventrgb_dualstem_aug.py --min-box)
   recurrent checkpoints: add --clip-len 16 (batch // clip-len streaming slots); run the stateless reference with the same value
 
 event rows (counts are raw, cutoff EVT_CUTOFF): evt_half / evt_double scale the counts (bias or lighting change),
@@ -25,6 +26,7 @@ import evrgb  # noqa: F401  (registers DualStemFuse for checkpoint loading)
 from datasets.aramsuisse_dataset import ArmasuisseDataset
 from datasets.basedataset import load_array
 from datasets.clip_sampler import ClipBatchSampler
+from datasets.min_box_transformer import MinBoxTransformer
 from datasets.pad_transformer import PadTransformer
 from datasets.rgb_shift_transformer import RGBShiftTransformer
 from datasets.yolo_converter import YoloConverter
@@ -114,12 +116,15 @@ def perturb(img: torch.Tensor, cond: str) -> torch.Tensor:
 
 class RobustValidator(EventRGBValidator):
     condition = "clean"
+    MIN_BOX = 0
 
     def get_dataloader(self, dataset_path, batch_size):
         arma = ArmasuisseDataset(dataset_path, True, True)
         ds = PrevRGB(arma) if self.condition == "rgb_prev" else arma
         if self.condition.startswith("evt_shift"):
             ds = ShiftEvt(arma, int(self.condition[9:]))
+        if self.MIN_BOX > 0:
+            ds = MinBoxTransformer(ds, self.MIN_BOX)
         h, w = arma.get_im_shape()
         ds = YoloConverter(dataset_path, PadTransformer(ds, (0, -w % 32, 0, -h % 32)))
         if self.CLIP_LEN > 1:  # recurrent checkpoints: batch = slots x CLIP_LEN consecutive frames, state carried per slot
@@ -143,8 +148,10 @@ def main():
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--conditions", nargs="+", default=CONDITIONS, choices=CONDITIONS)
     p.add_argument("--clip-len", type=int, default=1, help="> 1 for recurrent checkpoints (use the same value for the stateless reference rows)")
+    p.add_argument("--min-box", type=float, default=0, help="minimum label box side in px (use the value the checkpoint was trained with)")
     a = p.parse_args()
     RobustValidator.CLIP_LEN = a.clip_len
+    RobustValidator.MIN_BOX = a.min_box
 
     torch.manual_seed(0)
     rows = {}

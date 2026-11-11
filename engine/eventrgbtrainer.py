@@ -13,6 +13,7 @@ from copy import copy
 from datasets.aramsuisse_dataset import ArmasuisseDataset
 from datasets.clip_sampler import ClipBatchSampler
 from datasets.flip_transformer import HFlipTransformer
+from datasets.min_box_transformer import MinBoxTransformer
 from datasets.pad_transformer import PadTransformer
 from datasets.rgb_photometric_transformer import RGBPhotometricTransformer
 from datasets.rgb_shift_transformer import RGBShiftTransformer
@@ -35,6 +36,8 @@ class EventRGBTrainer(DetectionTrainer):
     ZOOM_P = 0.0
     ZOOM_IN = 1.5
     ZOOM_OUT = 1.0
+    # Minimum label box side in px (train and val): small drones get a box of at least this size around their center.
+    MIN_BOX = 0
     # "both" (13 ch), "rgb" (3 ch) or "event" (10 ch). Single-modality runs are the reference rows for the fusion.
     MODALITY = "both"
     # Recurrent training: a batch = (batch // CLIP_LEN) sequence slots x CLIP_LEN consecutive frames; the first
@@ -68,6 +71,8 @@ class EventRGBTrainer(DetectionTrainer):
             ds = RGBPhotometricTransformer(ds, p=self.RGB_PHOTOMETRIC_P, **self.RGB_PHOTOMETRIC_KW)
         if mode == "train" and self.HFLIP_P > 0:
             ds = HFlipTransformer(ds, p=self.HFLIP_P)
+        if self.MIN_BOX > 0:
+            ds = MinBoxTransformer(ds, self.MIN_BOX)
         h, w = arma.get_im_shape()
         padded = PadTransformer(ds, (0, -w % 32, 0, -h % 32))  # pad right/bottom to a multiple of 32 (360 -> 384, 720 -> 736)
         yolo = YoloConverter(img_path, padded)

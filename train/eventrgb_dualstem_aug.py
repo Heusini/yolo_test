@@ -14,6 +14,8 @@ examples:
       --flip 0.5 --photo 0.5 --blur 0 --exposure 0.7 1.4 --shift 2 1 --drop-rgb 0.1 --drop-evt 0.05
   # loss gains (Ultralytics defaults box 7.5, cls 0.5, dfl 1.5; for YOLO26 "dfl" is the L1 on the box edges)
   python -m train.eventrgb_dualstem_aug --name cls_heavy --box 3 --cls 1.5 --dfl 0.5 ...
+  # labels of at least 24 px per side (train and val): a centered box counts, the drone's exact extent does not
+  python -m train.eventrgb_dualstem_aug --name minbox24 --min-box 24 ...
 """
 
 import argparse
@@ -54,6 +56,7 @@ def parse():
     p.add_argument("--random-slots", type=int, default=0, help="slots that draw random clips instead of streaming")
     p.add_argument("--lr0", type=float, default=None, help="fixed initial lr (sets optimizer AdamW; default: Ultralytics auto)")
     p.add_argument("--warmup", type=float, default=None, help="warmup epochs (default: Ultralytics 3)")
+    p.add_argument("--min-box", type=float, default=0, help="minimum label box side in px, train and val (0 = labels as exported)")
     p.add_argument("--box", type=float, default=None, help="box (CIoU) loss gain (default: Ultralytics 7.5)")
     p.add_argument("--cls", type=float, default=None, help="classification loss gain (default: Ultralytics 0.5)")
     p.add_argument("--dfl", type=float, default=None, help="box-edge L1 loss gain (default: Ultralytics 1.5)")
@@ -85,6 +88,7 @@ def main():
     EventRGBTrainer.RGB_SHIFT_PX = tuple(a.shift)
     EventRGBTrainer.ZOOM_P, EventRGBTrainer.ZOOM_IN = a.zoom
     EventRGBTrainer.ZOOM_OUT = a.zoom_out
+    EventRGBTrainer.MIN_BOX = a.min_box
     DualStemTrainer.P_DROP_RGB = a.drop_rgb
     DualStemTrainer.P_DROP_EVT = a.drop_evt
     if a.modality != "both":
@@ -105,7 +109,7 @@ def main():
     EventRGBTrainer.RANDOM_SLOTS = a.random_slots
     DualStemTrainer.MEM = a.mem
     print(f"augmentation: flip={a.flip} photo={a.photo} (blur<={a.blur}, exposure={a.exposure}) shift={a.shift} zoom={a.zoom} zoom_out={a.zoom_out} "
-          f"drop_rgb={a.drop_rgb} drop_evt={a.drop_evt}")
+          f"drop_rgb={a.drop_rgb} drop_evt={a.drop_evt} min_box={a.min_box}")
     print(f"memory: {a.mem} clip_len={a.clip_len} random_slots={a.random_slots} pretrained={a.pretrained}")
 
     if a.baseline:
