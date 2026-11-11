@@ -16,6 +16,8 @@ examples:
   python -m train.eventrgb_dualstem_aug --name cls_heavy --box 3 --cls 1.5 --dfl 0.5 ...
   # labels of at least 24 px per side (train and val): a centered box counts, the drone's exact extent does not
   python -m train.eventrgb_dualstem_aug --name minbox24 --min-box 24 ...
+  # pick best.pt by cAP (prediction center inside the true box; val also reports it as val/cAP(B)) instead of mAP50-95
+  python -m train.eventrgb_dualstem_aug --name center --select center ...
 """
 
 import argparse
@@ -56,6 +58,7 @@ def parse():
     p.add_argument("--random-slots", type=int, default=0, help="slots that draw random clips instead of streaming")
     p.add_argument("--lr0", type=float, default=None, help="fixed initial lr (sets optimizer AdamW; default: Ultralytics auto)")
     p.add_argument("--warmup", type=float, default=None, help="warmup epochs (default: Ultralytics 3)")
+    p.add_argument("--select", choices=["map", "map50", "center"], default="map", help="metric that picks best.pt (map = mAP50-95)")
     p.add_argument("--min-box", type=float, default=0, help="minimum label box side in px, train and val (0 = labels as exported)")
     p.add_argument("--box", type=float, default=None, help="box (CIoU) loss gain (default: Ultralytics 7.5)")
     p.add_argument("--cls", type=float, default=None, help="classification loss gain (default: Ultralytics 0.5)")
@@ -89,6 +92,7 @@ def main():
     EventRGBTrainer.ZOOM_P, EventRGBTrainer.ZOOM_IN = a.zoom
     EventRGBTrainer.ZOOM_OUT = a.zoom_out
     EventRGBTrainer.MIN_BOX = a.min_box
+    EventRGBTrainer.SELECT = a.select
     DualStemTrainer.P_DROP_RGB = a.drop_rgb
     DualStemTrainer.P_DROP_EVT = a.drop_evt
     if a.modality != "both":

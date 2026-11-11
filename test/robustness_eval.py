@@ -162,14 +162,15 @@ def main():
             RobustValidator.condition = cond
             m = model.val(data=a.data, imgsz=a.imgsz, device=a.device, batch=a.batch, workers=a.workers, rect=True,
                           plots=False, verbose=False, validator=RobustValidator, project="runs/robustness", name=f"{name}_{cond}", exist_ok=True)
-            rows[(name, cond)] = (m.box.mp, m.box.mr, m.box.map50, m.box.map)
-            print(f"{name:45s} {cond:11s} P {m.box.mp:.3f}  R {m.box.mr:.3f}  mAP50 {m.box.map50:.3f}  mAP50-95 {m.box.map:.3f}", flush=True)
+            rows[(name, cond)] = (m.box.mp, m.box.mr, m.box.map50, m.box.map, m.center_ap)
+            print(f"{name:45s} {cond:11s} P {m.box.mp:.3f}  R {m.box.mr:.3f}  mAP50 {m.box.map50:.3f}  mAP50-95 {m.box.map:.3f}  cAP {m.center_ap:.3f}", flush=True)
 
-    print("\n=== mAP50-95 per condition ===")
     names = list(dict.fromkeys(n for n, _ in rows))
-    print(f"{'condition':11s}" + "".join(f"{n[-28:]:>30s}" for n in names))
-    for cond in a.conditions:
-        print(f"{cond:11s}" + "".join(f"{rows[(n, cond)][3]:30.3f}" for n in names))
+    for title, col in (("mAP50-95", 3), ("cAP (center inside true box)", 4)):
+        print(f"\n=== {title} per condition ===")
+        print(f"{'condition':11s}" + "".join(f"{n[-28:]:>30s}" for n in names))
+        for cond in a.conditions:
+            print(f"{cond:11s}" + "".join(f"{rows[(n, cond)][col]:30.3f}" for n in names))
 
 
 if __name__ == "__main__":

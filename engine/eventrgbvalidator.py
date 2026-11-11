@@ -5,7 +5,8 @@ from ultralytics.utils import ops
 from ultralytics.models.yolo.detect import DetectionValidator
 from pathlib import Path
 
-from ultralytics.utils.metrics import DetMetrics
+from ultralytics.utils import LOGGER
+from ultralytics.utils.metrics import DetMetrics, ap_per_class
 from einops import rearrange, reduce
 from ultralytics.utils.plotting import plot_images
 
@@ -15,6 +16,8 @@ from evrgb.temporal import step_memory
 class EventRGBValidator(DetectionValidator):
     N_RGB = 3  # leading RGB channels to scale by 1/255 (0 for event-only models)
     CLIP_LEN = 1  # > 1: the dataloader yields clip batches (datasets/clip_sampler.py); recurrent blocks get reset flags
+    # What best.pt is picked by: "map" (mAP50-95, Ultralytics default), "map50", or "center" (cAP, see center_hits).
+    FITNESS = "map"
 
     def __init__(
         self, dataloader=None, save_dir=None, args=None, _callbacks: dict | None = None
@@ -40,6 +43,53 @@ class EventRGBValidator(DetectionValidator):
     def init_metrics(self, model) -> None:
         super().init_metrics(model)
         self._mem_model = model  # DetectionModel in training, AutoBackend standalone; both contain the blocks
+        self.metrics.stats["tp_c"] = []  # center hits, next to the IoU-based tp
+
+    @staticmethod
+    def center_hits(pred_cls, true_cls, pred_boxes, true_boxes) -> np.ndarray:
+        """(N,) bool: a prediction hits when its center lies inside a true box of its class that no other prediction
+        took yet (closest center wins). Size and overlap of the predicted box play no role."""
+        pc = (pred_boxes[:, :2] + pred_boxes[:, 2:]) / 2
+        tc = (true_boxes[:, :2] + true_boxes[:, 2:]) / 2
+        inside = (pc[:, None] >= true_boxes[None, :, :2]).all(-1) & (pc[:, None] <= true_boxes[None, :, 2:]).all(-1)
+        inside &= pred_cls[:, None] == true_cls[None]
+        hit = np.zeros(len(pred_boxes), dtype=bool)
+        pairs = inside.nonzero()
+        if len(pairs):
+            dist = (pc[pairs[:, 0]] - tc[pairs[:, 1]]).norm(dim=-1)
+            used_p, used_t = set(), set()
+            for i, j in pairs[dist.argsort()].tolist():
+                if i not in used_p and j not in used_t:
+                    used_p.add(i), used_t.add(j)
+                    hit[i] = True
+        return hit
+
+    def _process_batch(self, preds, batch):
+        out = super()._process_batch(preds, batch)
+        if batch["cls"].shape[0] == 0 or preds["cls"].shape[0] == 0:
+            out["tp_c"] = np.zeros(preds["cls"].shape[0], dtype=bool)
+        else:
+            out["tp_c"] = self.center_hits(preds["cls"], batch["cls"], preds["bboxes"], batch["bboxes"])
+        return out
+
+    def get_stats(self):
+        st = self.metrics.stats
+        cap = float("nan")
+        if len(st["tp"]) and sum(len(c) for c in st["tp_c"]):
+            tp_c, conf, pred_cls, target_cls = (np.concatenate(st[k], 0) for k in ("tp_c", "conf", "pred_cls", "target_cls"))
+            cap = float(ap_per_class(tp_c[:, None], conf, pred_cls, target_cls)[5].mean())
+        results = super().get_stats()
+        results["val/cAP(B)"] = cap  # not "metrics/": plot_results has a fixed grid for those
+        self.metrics.center_ap = cap  # reachable from model.val() as metrics.center_ap
+        if self.FITNESS == "map50":
+            results["fitness"] = results["metrics/mAP50(B)"]
+        elif self.FITNESS == "center":
+            results["fitness"] = cap
+        return results
+
+    def print_results(self) -> None:
+        super().print_results()
+        LOGGER.info(f"{'cAP (center inside true box)':>40s} {self.metrics.center_ap:11.3g}")
 
     def pred_to_json(
         self, predn: dict[str, torch.Tensor], pbatch: dict[str, Any]

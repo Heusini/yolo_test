@@ -38,6 +38,8 @@ class EventRGBTrainer(DetectionTrainer):
     ZOOM_OUT = 1.0
     # Minimum label box side in px (train and val): small drones get a box of at least this size around their center.
     MIN_BOX = 0
+    # best.pt selection: "map" (mAP50-95), "map50" or "center" (cAP: prediction center inside the true box).
+    SELECT = "map"
     # "both" (13 ch), "rgb" (3 ch) or "event" (10 ch). Single-modality runs are the reference rows for the fusion.
     MODALITY = "both"
     # Recurrent training: a batch = (batch // CLIP_LEN) sequence slots x CLIP_LEN consecutive frames; the first
@@ -107,6 +109,7 @@ class EventRGBTrainer(DetectionTrainer):
         self.loss_names = "box_loss", "cls_loss", "dfl_loss"
         EventRGBValidator.N_RGB = self.n_rgb
         EventRGBValidator.CLIP_LEN = self.CLIP_LEN
+        EventRGBValidator.FITNESS = self.SELECT
         return EventRGBValidator(
             self.test_loader,
             save_dir=self.save_dir,
