@@ -46,22 +46,22 @@ class EventRGBValidator(DetectionValidator):
         self.metrics.stats["tp_c"] = []  # center hits, next to the IoU-based tp
 
     @staticmethod
-    def center_hits(pred_cls, true_cls, pred_boxes, true_boxes) -> np.ndarray:
+    def center_hits(pred_cls, true_cls, pred_boxes, true_boxes, conf) -> np.ndarray:
         """(N,) bool: a prediction hits when its center lies inside a true box of its class that no other prediction
-        took yet (closest center wins). Size and overlap of the predicted box play no role."""
+        took yet. Predictions claim boxes in confidence order, as in COCO matching, so a low-confidence duplicate
+        cannot steal the hit; a prediction inside several true boxes takes the one with the closest center. Size and overlap of the predicted box play no role."""
         pc = (pred_boxes[:, :2] + pred_boxes[:, 2:]) / 2
         tc = (true_boxes[:, :2] + true_boxes[:, 2:]) / 2
         inside = (pc[:, None] >= true_boxes[None, :, :2]).all(-1) & (pc[:, None] <= true_boxes[None, :, 2:]).all(-1)
         inside &= pred_cls[:, None] == true_cls[None]
         hit = np.zeros(len(pred_boxes), dtype=bool)
-        pairs = inside.nonzero()
-        if len(pairs):
-            dist = (pc[pairs[:, 0]] - tc[pairs[:, 1]]).norm(dim=-1)
-            used_p, used_t = set(), set()
-            for i, j in pairs[dist.argsort()].tolist():
-                if i not in used_p and j not in used_t:
-                    used_p.add(i), used_t.add(j)
-                    hit[i] = True
+        used_t = set()
+        for i in conf.argsort(descending=True).tolist():
+            cands = [j for j in inside[i].nonzero().flatten().tolist() if j not in used_t]
+            if cands:
+                j = min(cands, key=lambda j: float((pc[i] - tc[j]).norm()))
+                used_t.add(j)
+                hit[i] = True
         return hit
 
     def _process_batch(self, preds, batch):
@@ -69,7 +69,7 @@ class EventRGBValidator(DetectionValidator):
         if batch["cls"].shape[0] == 0 or preds["cls"].shape[0] == 0:
             out["tp_c"] = np.zeros(preds["cls"].shape[0], dtype=bool)
         else:
-            out["tp_c"] = self.center_hits(preds["cls"], batch["cls"], preds["bboxes"], batch["bboxes"])
+            out["tp_c"] = self.center_hits(preds["cls"], batch["cls"], preds["bboxes"], batch["bboxes"], preds["conf"])
         return out
 
     def get_stats(self):
