@@ -1,6 +1,6 @@
 # Model registry
 
-State of 2026-11-18. Weights on mars: `/home/sheusinger/repos/yolo_test/runs/detect/yolo/<run>/weights/best.pt`
+State of 2026-11-19. Weights on mars: `/home/sheusinger/repos/yolo_test/runs/detect/yolo/<run>/weights/best.pt`
 (`best.pt` = epoch with the best mAP50-95, or the metric chosen with `--select` for newer runs).
 Scores: SkyEV val at 1280x736, 33 ms event window, mAP50 / mAP50-95 at the best epoch, unless noted.
 Rating 1-10 = clean accuracy + robustness table (`test/robustness_eval.py`) + fit for the Orin deployment.
@@ -34,7 +34,7 @@ Typst version: `typst_tables/model_registry.typ` (outer repo).
 | rating | model | run folder | mAP50 / 50-95 | note |
 |---|---|---|---|---|
 | 4 | event only, mild aug | `eventonly_mildaug1280_yolo26n` (unconfirmed) | .907 / .472 | recall .88, loose boxes; fallback if an RGB camera fails |
-| 3 | RGB only, mild aug | `rgbonly_mildaug1280_yolo26n2` (suffix unconfirmed) | .837 / .509 | recall .80, misses the small drones |
+| 3 | RGB only, mild aug | `rgbonly_mildaug1280_yolo26n2` | .835 / .509 | recall .79, cAP .883: the ceiling for any model when events are off |
 | 7 on FRED / 1 on SkyEV | DualStem, FRED only | `eventrgb_dualstem_fred_zoom1280_yolo26n` | .917 / .528 on FRED val | beats the FRED paper by 4 mAP50; effectively event-only; zero-shot on SkyEV .125 / .028 |
 
 ## Old 640x384 runs (33 ms window, superseded by the 1280 export)
@@ -48,18 +48,31 @@ Typst version: `typst_tables/model_registry.typ` (outer repo).
 
 ## Robustness reference rows (SkyEV val, mAP50-95)
 
-| condition | zoom | mixed | mixed cAP |
-|---|---|---|---|
-| clean | .580 | .571 | .850 |
-| rgb_zero | .384 | .406 | .576 |
-| evt_zero | .481 | .482 | .698 |
-| rgb_dark / bright / noise | .555 / .563 / .565 | .539 / .559 / .559 | .811 / .842 / .841 |
-| rgb_shift2 / 4 / 8 | .545 / .476 / .331 | .540 / .479 / .344 | .839 / .812 / .774 |
-| rgb_prev | .434 | .453 | .817 |
-| evt_half / double / noise / drop | .557 / .579 / .584 / .578 | .536 / .569 / .564 / .569 | .801 / .858 / .835 / .842 |
-| evt_shift1-5 | .581 .576 .569 .561 .553 | .571 .566 .558 .549 .539 | .851 .850 .844 .843 .836 |
+| condition | zoom | mixed |
+|---|---|---|
+| clean | .580 | .571 |
+| rgb_zero | .384 | .406 |
+| evt_zero | .481 | .482 |
+| rgb_dark / bright / noise | .555 / .563 / .565 | .539 / .559 / .559 |
+| rgb_shift2 / 4 / 8 | .545 / .476 / .331 | .540 / .479 / .344 |
+| rgb_prev | .434 | .453 |
+| evt_half / double / noise / drop | .557 / .579 / .584 / .578 | .536 / .569 / .564 / .569 |
+| evt_shift1-5 | .581 .576 .569 .561 .553 | .571 .566 .558 .549 .539 |
 
-cAP in this table was computed before commit 87a5b1a (closest center took the hit regardless of confidence, so junk duplicates stole hits): biased low and noisy. Corrected values for the mixed model in the next table.
+FRED val, mAP50-95: FRED-only model clean .528, rgb_zero .505, evt_zero .149, evt_shift1-5 .322/.230/.168/.112/.039; mixed model clean .518, rgb_zero .499, evt_zero .137. The gate leans on events for FRED frames and on both for SkyEV frames in the same network. (FRED cAP values from before 87a5b1a dropped, rerun before quoting.)
+
+## cAP (center inside true box), SkyEV val, raw labels, after the cAP fix (87a5b1a)
+
+| condition | zoom | mixed | center | RGB only |
+|---|---|---|---|---|
+| clean | .982 | .981 | .985 | .883 |
+| rgb_zero | .957 | .953 | .965 | 0 |
+| evt_zero | .830 | .836 | .852 | .883 |
+| rgb_shift8 | .974 | .975 | .977 | |
+| rgb_prev | .968 | .970 | .974 | |
+| evt_half | .953 | .949 | .962 | |
+
+Reading: all three fusion models find 98 % of the drones on clean frames and still 97 % under an 8 px RGB shift, so the mAP drops under RGB perturbations are box precision, not missed drones. Events off is the one condition that costs detections, and the RGB-only model shows it is not a data ceiling: RGB alone reaches .883, the fusion models .83-.85, because events were hidden in only 5 % of training frames (`--drop-evt 0.05`). Fine-tune `eventrgb_dualstem_mixed_center_dropevt30_1280_yolo26n` (from the center checkpoint, `--drop-evt 0.3`, 4 epochs, lr0 2e-4) started 2026-11-19 to close that gap.
 
 ## Center recipe vs mixed, SkyEV val, after the cAP fix (87a5b1a)
 
@@ -76,11 +89,10 @@ Each model wins mAP50-95 on its own label definition, so the box score only says
 
 Reading: with correct matching, the mixed model's cAP is .98 on clean and still .975 under an 8 px RGB shift, so the robustness drops in mAP were mostly box precision, not missed drones. The only condition that costs detections is events off (cAP .84-.85).
 
-FRED val, mAP50-95 (cAP): FRED-only model clean .528, rgb_zero .505, evt_zero .149, evt_shift1-5 .322/.230/.168/.112/.039; mixed model clean .518 (.712), rgb_zero .499 (.660), evt_zero .137 (.090). The gate leans on events for FRED frames and on both for SkyEV frames in the same network.
-
 ## Recipes
 
 - zoom recipe: `--flip 0.5 --photo 0.5 --blur 0 --exposure 0.7 1.4 --shift 2 1 --drop-rgb 0.1 --drop-evt 0.05 --zoom 0.5 1.5 --zoom-out 1.2`, imgsz 1280, from `yolo26n.pt`
 - center recipe: zoom recipe + `--min-box 24 --box 3 --cls 1.5 --dfl 0.5 --select center` (labels grown to >= 24 px in train and val; score with `test/robustness_eval.py --min-box 24` and without)
+- events-off fine-tune: center recipe with `--drop-evt 0.3 --pretrained <center best.pt> --epochs 4 --lr0 2e-4 --warmup 0`
 - shift recipe: same without `--zoom --zoom-out`; mild aug: same without `--shift`
 - mixed data: `utils/make_mixed_dataset.py` -> `conf/mixed_data.yaml` (val = SkyEV val); FRED: `conf/fred_data.yaml`; SkyEV 1280 yaml on mars: `conf/eventrgb_720_33ms_data.yaml`
