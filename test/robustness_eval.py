@@ -5,6 +5,7 @@ usage (repo root):
   optional: --conditions clean rgb_zero evt_zero rgb_dark rgb_bright rgb_noise rgb_shift2 rgb_shift4 rgb_shift8 rgb_prev
                         evt_half evt_double evt_noise evt_drop evt_shift1 evt_shift2 evt_shift3 evt_shift4 evt_shift5
   --min-box 24: grow the labels like the training run did (train/eventrgb_dualstem_aug.py --min-box)
+  RGB-only / event-only checkpoints (3 / 10 input channels) work too: the batch is cut to their channels after the perturbation
   recurrent checkpoints: add --clip-len 16 (batch // clip-len streaming slots); run the stateless reference with the same value
 
 event rows (counts are raw, cutoff EVT_CUTOFF): evt_half / evt_double scale the counts (bias or lighting change),
@@ -117,6 +118,7 @@ def perturb(img: torch.Tensor, cond: str) -> torch.Tensor:
 class RobustValidator(EventRGBValidator):
     condition = "clean"
     MIN_BOX = 0
+    CHANNELS = 13  # input channels of the checkpoint: 13 (both), 3 (RGB only), 10 (event only); set in main
 
     def get_dataloader(self, dataset_path, batch_size):
         arma = ArmasuisseDataset(dataset_path, True, True)
@@ -125,6 +127,7 @@ class RobustValidator(EventRGBValidator):
             ds = ShiftEvt(arma, int(self.condition[9:]))
         if self.MIN_BOX > 0:
             ds = MinBoxTransformer(ds, self.MIN_BOX)
+        self.data["channels"] = self.CHANNELS  # warmup tensor
         h, w = arma.get_im_shape()
         ds = YoloConverter(dataset_path, PadTransformer(ds, (0, -w % 32, 0, -h % 32)))
         if self.CLIP_LEN > 1:  # recurrent checkpoints: batch = slots x CLIP_LEN consecutive frames, state carried per slot
@@ -134,7 +137,8 @@ class RobustValidator(EventRGBValidator):
 
     def preprocess(self, batch):
         batch = super().preprocess(batch)
-        batch["img"] = perturb(batch["img"], self.condition)
+        img = perturb(batch["img"], self.condition)  # always on the full 13 channels, then cut to the model's input
+        batch["img"] = {13: img, 3: img[:, :3], 10: img[:, 3:]}[self.CHANNELS]
         return batch
 
 
@@ -158,6 +162,7 @@ def main():
     for ckpt in a.ckpts:
         name = Path(ckpt).resolve().parent.parent.name
         model = YOLO(ckpt)
+        RobustValidator.CHANNELS = model.model.yaml["channels"]
         for cond in a.conditions:
             RobustValidator.condition = cond
             m = model.val(data=a.data, imgsz=a.imgsz, device=a.device, batch=a.batch, workers=a.workers, rect=True,
