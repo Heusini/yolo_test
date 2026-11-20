@@ -1,6 +1,6 @@
 # Model registry
 
-State of 2026-11-19. Weights on mars: `/home/sheusinger/repos/yolo_test/runs/detect/yolo/<run>/weights/best.pt`
+State of 2026-11-20. Weights on mars: `/home/sheusinger/repos/yolo_test/runs/detect/yolo/<run>/weights/best.pt`
 (`best.pt` = epoch with the best mAP50-95, or the metric chosen with `--select` for newer runs).
 Scores: SkyEV val at 1280x736, 33 ms event window, mAP50 / mAP50-95 at the best epoch, unless noted.
 Rating 1-10 = clean accuracy + robustness table (`test/robustness_eval.py`) + fit for the Orin deployment.
@@ -12,7 +12,8 @@ Typst version: `typst_tables/model_registry.typ` (outer repo).
 |---|---|---|---|---|
 | 9 | DualStem, zoom recipe (deployment) | `eventrgb_dualstem_mildaug_shift_zoom1280_yolo26n` | .954 / .581 | best clean score and robustness table; TensorRT engine, 23 h on the Orin |
 | 9 | DualStem, mixed SkyEV+FRED (deployment candidate) | `eventrgb_dualstem_mixed_zoom1280_yolo26n2` | .952 / .572 | 0.9 behind the zoom model on SkyEV, 1-2 ahead on misaligned/stale RGB; on FRED val .518 (specialist .528). One model for both domains, still rising at epoch 12 (best = ep 12). Not yet exported to TensorRT |
-| 9 | DualStem, mixed data, center recipe (deployment candidate, presence first) | `eventrgb_dualstem_mixed_center1280_yolo26n` | .981 / .660 on 24 px grown labels | zoom recipe + `--min-box 24 --box 3 --cls 1.5 --dfl 0.5 --select center`, 12 epochs, best = ep 12. Labels grown to >= 24 px in train and val, so mAP is only comparable at equal label size (table below). cAP, which ignores box size, is 0.2-1.6 above the mixed model in every condition, most where a sensor is missing. Price: boxes are ~24 px, raw-label mAP50-95 .343. Pick this when presence and position matter, the mixed model when tight boxes matter |
+| 9 | DualStem, center recipe + events-off fine-tune (deployment candidate, presence first) | `eventrgb_dualstem_mixed_center_dropevt30_1280_yolo26n` | .975 / .657 on 24 px grown labels | center checkpoint fine-tuned 4 epochs with `--drop-evt 0.3`, lr0 2e-4, no warmup, best = ep 3. cAP vs the center model: clean .984 / .985, rgb_zero .972 / .965, evt_zero .859 / .852, rgb_shift8 .983 / .977, rgb_prev .972 / .974, evt_half .963 / .962: four rows up by 0.6-0.7, nothing lost. Replaces the center model as the presence-first candidate. Events off stays 2.4 below the RGB-only ceiling (.883); closing that would need a full run from scratch for at most a point |
+| 9 | DualStem, mixed data, center recipe (superseded by the fine-tune above) | `eventrgb_dualstem_mixed_center1280_yolo26n` | .981 / .660 on 24 px grown labels | zoom recipe + `--min-box 24 --box 3 --cls 1.5 --dfl 0.5 --select center`, 12 epochs, best = ep 12. Labels grown to >= 24 px in train and val, so mAP is only comparable at equal label size (table below). cAP, which ignores box size, is 0.2-1.6 above the mixed model in every condition, most where a sensor is missing. Price: boxes are ~24 px, raw-label mAP50-95 .343. Pick this when presence and position matter, the mixed model when tight boxes matter |
 | 8 | DualStem, shift recipe (previous deployment) | `eventrgb_dualstem_mildaug_shift1280_yolo26n` | .948 / .559 | recipe before zoom; 2 points behind on clean and on small drones |
 | 7 | DualStem, mild aug | `eventrgb_dualstem_mildaug1280_yolo26n` | .942 / .556 | keeps .38 with RGB off; no shift training, 4 px misalignment costs 12 points |
 
@@ -63,16 +64,18 @@ FRED val, mAP50-95: FRED-only model clean .528, rgb_zero .505, evt_zero .149, ev
 
 ## cAP (center inside true box), SkyEV val, raw labels, after the cAP fix (87a5b1a)
 
-| condition | zoom | mixed | center | RGB only |
-|---|---|---|---|---|
-| clean | .982 | .981 | .985 | .883 |
-| rgb_zero | .957 | .953 | .965 | 0 |
-| evt_zero | .830 | .836 | .852 | .883 |
-| rgb_shift8 | .974 | .975 | .977 | |
-| rgb_prev | .968 | .970 | .974 | |
-| evt_half | .953 | .949 | .962 | |
+| condition | zoom | mixed | center | center + dropevt30 | RGB only |
+|---|---|---|---|---|---|
+| clean | .982 | .981 | .985 | .984 | .883 |
+| rgb_zero | .957 | .953 | .965 | .972 | 0 |
+| evt_zero | .830 | .836 | .852 | .859 | .883 |
+| rgb_shift8 | .974 | .975 | .977 | .983 | |
+| rgb_prev | .968 | .970 | .974 | .972 | |
+| evt_half | .953 | .949 | .962 | .963 | |
 
-Reading: all three fusion models find 98 % of the drones on clean frames and still 97 % under an 8 px RGB shift, so the mAP drops under RGB perturbations are box precision, not missed drones. Events off is the one condition that costs detections, and the RGB-only model shows it is not a data ceiling: RGB alone reaches .883, the fusion models .83-.85, because events were hidden in only 5 % of training frames (`--drop-evt 0.05`). Fine-tune `eventrgb_dualstem_mixed_center_dropevt30_1280_yolo26n` (from the center checkpoint, `--drop-evt 0.3`, 4 epochs, lr0 2e-4) started 2026-11-19 to close that gap.
+mAP50-95 on raw labels, dropevt30 / center: clean .349 / .343, rgb_zero .266 / .275, evt_zero .270 / .261, rgb_shift8 .240 / .231, rgb_prev .290 / .282, evt_half .317 / .312 (both draw ~24 px boxes, see the center table below).
+
+Reading: all three fusion models find 98 % of the drones on clean frames and still 97 % under an 8 px RGB shift, so the mAP drops under RGB perturbations are box precision, not missed drones. Events off is the one condition that costs detections, and the RGB-only model shows it is not a data ceiling: RGB alone reaches .883, the fusion models .83-.85, because events were hidden in only 5 % of training frames (`--drop-evt 0.05`). The fine-tune `eventrgb_dualstem_mixed_center_dropevt30_1280_yolo26n` (from the center checkpoint, `--drop-evt 0.3`, 4 epochs, lr0 2e-4) closed 0.7 of that gap and lifted rgb_zero and rgb_shift8 by the same amount at no cost on clean. The remaining 2.4 points are likely capacity (one shared trunk vs a trunk spent only on RGB), not dropout; not pursued further.
 
 ## Center recipe vs mixed, SkyEV val, after the cAP fix (87a5b1a)
 
