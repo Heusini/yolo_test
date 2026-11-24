@@ -3,3 +3,6 @@ runs/
 cache/
 pretrained_weights/
 *.pt
+!best_models/*.pt
+best_models/*.onnx
+conf/*_local.yaml

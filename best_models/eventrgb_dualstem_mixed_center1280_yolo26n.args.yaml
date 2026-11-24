@@ -106,4 +106,4 @@ auto_augment: randaugment
 erasing: 0.4
 cfg: null
 tracker: botsort.yaml
-save_dir: /home/sheusinger/repos/yolo_test/runs/detect/yolo/eventrgb_dualstem_mixed_center1280_yolo26n
+save_dir: runs/detect/yolo/eventrgb_dualstem_mixed_center1280_yolo26n

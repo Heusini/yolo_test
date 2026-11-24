@@ -1,6 +1,6 @@
 # SkyEV + FRED mixed training set built by utils/make_mixed_dataset.py (symlinks): train = SkyEV train + FRED train,
 # val = SkyEV val only. FRED val is evaluated separately with conf/fred_data.yaml.
-path: /scratch/sheusinger/mixed_skyev_fred_720_1280/
+path: /data/mixed_skyev_fred_720_1280  # set to your dataset root (layout: README, "Data format")
 train: train
 val: val
 

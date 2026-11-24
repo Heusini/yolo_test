@@ -1,6 +1,4 @@
-# path: /scratch/sheusinger/st_stephan_360_640_20/ # dataset root dir
-# path: /scratch/sheusinger/st_stephan_720_1280_20/ # dataset root dir
-path: /scratch/sheusinger/st_stephan_360_640_10_10000/
+path: /data/st_stephan_360_640_10_10000  # set to your dataset root (layout: README, "Data format")
 train: train # train images (relative to 'path') 4 images
 val: val
 
